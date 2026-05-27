@@ -202,7 +202,10 @@ local function send_initial(client)
     send_json(client, "variables", config.variables())
     send_json(client, "graphdata", config.graph_data())
     if config.theme then
-      send_json(client, "theme", config.theme())
+      local theme_data = config.theme()
+      if next(theme_data) ~= nil then
+        send_json(client, "theme", theme_data)
+      end
     end
   end)
 end

@@ -32,10 +32,106 @@ local function object_or_empty(tbl)
   return vim.empty_dict()
 end
 
+local function read_file(path)
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok then
+    return nil
+  end
+  return table.concat(lines, "\n")
+end
+
+-- Compute the outline level path (ancestor heading titles) for a heading node.
+-- Returns an array of strings or vim.NIL for file-level and headingless nodes.
+local function compute_olp(node)
+  if node.olp then
+    return node.olp
+  end
+
+  if (node.level or 0) == 0 then
+    return vim.NIL
+  end
+
+  if not node.file or not node.range then
+    return vim.NIL
+  end
+
+  local start_offset = node.range.start and node.range.start.offset
+  if not start_offset then
+    return vim.NIL
+  end
+
+  local text = read_file(node.file)
+  if not text then
+    return vim.NIL
+  end
+
+  -- Walk headings in the file up to (but not including) the node's start byte.
+  -- Keep the most recent title seen at each heading level.
+  local level_titles = {}
+  local byte_pos = 0
+
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    if byte_pos >= start_offset then
+      break
+    end
+
+    local stars, title = line:match("^(%*+)%s+(.*)")
+    if stars then
+      local lvl = #stars
+      -- Clear all same/deeper levels so only the latest survives.
+      for k in pairs(level_titles) do
+        if k >= lvl then
+          level_titles[k] = nil
+        end
+      end
+      level_titles[lvl] = vim.trim(title)
+    end
+
+    byte_pos = byte_pos + #line + 1
+  end
+
+  -- Build the path from level 1 up to the parent level.
+  local olp = {}
+  for lvl = 1, (node.level or 1) - 1 do
+    if level_titles[lvl] then
+      table.insert(olp, level_titles[lvl])
+    end
+  end
+
+  if #olp == 0 then
+    return vim.NIL
+  end
+
+  return olp
+end
+
+-- Properties the frontend actively queries.
+local FORWARDED_PROPS = { "NOTER_PAGE", "ROAM_REFS", "ROAM_ALIASES" }
+
 function M.to_orui_node(node)
   local properties = {}
+
   if node.origin then
     properties.ROAM_ORIGIN = node.origin
+  end
+
+  -- refs array (org-roam.nvim native field)
+  if node.refs and #node.refs > 0 then
+    properties.ROAM_REFS = table.concat(node.refs, " ")
+  end
+
+  -- aliases array
+  if node.aliases and #node.aliases > 0 then
+    properties.ROAM_ALIASES = table.concat(node.aliases, " ")
+  end
+
+  -- Forward specific node-level properties that the frontend uses.
+  if type(node.properties) == "table" then
+    for _, key in ipairs(FORWARDED_PROPS) do
+      if node.properties[key] and not properties[key] then
+        properties[key] = tostring(node.properties[key])
+      end
+    end
   end
 
   return {
@@ -44,7 +140,7 @@ function M.to_orui_node(node)
     title = node.title,
     level = node.level or 0,
     pos = node_pos(node),
-    olp = node.olp or vim.NIL,
+    olp = compute_olp(node),
     properties = object_or_empty(properties),
     tags = vim.deepcopy(node.tags or {}),
   }
@@ -105,14 +201,6 @@ end
 function M.from_database(database)
   local core_db = database.internal_sync and database:internal_sync() or database
   return M.from_core_database(core_db)
-end
-
-local function read_file(path)
-  local ok, lines = pcall(vim.fn.readfile, path)
-  if not ok then
-    return nil
-  end
-  return table.concat(lines, "\n")
 end
 
 function M.node_text(node)

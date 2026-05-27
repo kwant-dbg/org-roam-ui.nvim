@@ -11,10 +11,56 @@ local defaults = {
   static_dir = nil,
   open_on_start = false,
   refresh_on_save = true,
+  follow_on_switch = false,
+  auto_sync_theme = false,
   org_roam = nil,
 }
 
 M.config = vim.deepcopy(defaults)
+
+-- follow augroup id when auto-follow is active, nil otherwise
+local follow_group = nil
+
+-- Map org-roam-ui theme color keys to Neovim highlight groups + attribute.
+local THEME_HL_MAP = {
+  bg             = { "Normal",          "bg" },
+  fg             = { "Normal",          "fg" },
+  ["bg-alt"]     = { "NormalFloat",     "bg" },
+  ["fg-alt"]     = { "Comment",         "fg" },
+  base0          = { "Normal",          "bg" },
+  base1          = { "StatusLine",      "bg" },
+  base2          = { "CursorLine",      "bg" },
+  base3          = { "Visual",          "bg" },
+  base4          = { "Comment",         "fg" },
+  base5          = { "NonText",         "fg" },
+  base6          = { "LineNr",          "fg" },
+  base7          = { "Normal",          "fg" },
+  base8          = { "FloatBorder",     "fg" },
+  red            = { "DiagnosticError", "fg" },
+  orange         = { "WarningMsg",      "fg" },
+  yellow         = { "DiagnosticWarn",  "fg" },
+  green          = { "String",          "fg" },
+  blue           = { "Function",        "fg" },
+  cyan           = { "Type",            "fg" },
+  violet         = { "Keyword",         "fg" },
+  magenta        = { "Special",         "fg" },
+  teal           = { "Operator",        "fg" },
+  ["dark-blue"]  = { "Statement",       "fg" },
+  ["dark-cyan"]  = { "Identifier",      "fg" },
+  grey           = { "Comment",         "fg" },
+}
+
+local function extract_nvim_theme()
+  local theme = {}
+  for color_key, spec in pairs(THEME_HL_MAP) do
+    local hl_name, attr = spec[1], spec[2]
+    local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = hl_name, link = false })
+    if ok and hl and type(hl[attr]) == "number" then
+      theme[color_key] = ("#%06x"):format(hl[attr])
+    end
+  end
+  return theme
+end
 
 local function plugin_root()
   local source = debug.getinfo(1, "S").source:sub(2)
@@ -66,6 +112,34 @@ function M.setup(opts)
     M.sync_theme()
   end, {})
 
+  vim.api.nvim_create_user_command("OrgRoamUiToggleFollow", function()
+    M.toggle_follow()
+  end, {})
+
+  vim.api.nvim_create_user_command("OrgRoamUiAddToLocalGraph", function()
+    local roam = get_roam()
+    if not roam or not roam.utils or not roam.utils.node_under_cursor then
+      return
+    end
+    roam.utils.node_under_cursor(function(node)
+      if node then
+        M.add_to_local_graph(node.id)
+      end
+    end)
+  end, {})
+
+  vim.api.nvim_create_user_command("OrgRoamUiRemoveFromLocalGraph", function()
+    local roam = get_roam()
+    if not roam or not roam.utils or not roam.utils.node_under_cursor then
+      return
+    end
+    roam.utils.node_under_cursor(function(node)
+      if node then
+        M.remove_from_local_graph(node.id)
+      end
+    end)
+  end, {})
+
   if M.config.refresh_on_save then
     local group = vim.api.nvim_create_augroup("org_roam_ui_nvim_refresh", { clear = true })
     vim.api.nvim_create_autocmd("BufWritePost", {
@@ -85,6 +159,10 @@ function M.setup(opts)
         M.refresh()
       end,
     })
+  end
+
+  if M.config.follow_on_switch then
+    M.toggle_follow()
   end
 end
 
@@ -220,11 +298,45 @@ function M.local_node(id, opts)
 end
 
 function M.theme()
+  if M.config.auto_sync_theme then
+    local extracted = extract_nvim_theme()
+    if next(extracted) ~= nil then
+      return extracted
+    end
+  end
   return M.config.theme or {}
 end
 
 function M.sync_theme()
   websocket.broadcast("theme", M.theme())
+end
+
+function M.toggle_follow()
+  if follow_group then
+    vim.api.nvim_del_augroup_by_id(follow_group)
+    follow_group = nil
+  else
+    follow_group = vim.api.nvim_create_augroup("org_roam_ui_nvim_follow", { clear = true })
+    vim.api.nvim_create_autocmd("BufEnter", {
+      group = follow_group,
+      pattern = "*.org",
+      callback = function()
+        M.follow_node_at_cursor()
+      end,
+    })
+  end
+end
+
+function M.add_to_local_graph(id)
+  websocket.command("change-local-graph", { id = id, manipulation = "add" })
+end
+
+function M.remove_from_local_graph(id)
+  websocket.command("change-local-graph", { id = id, manipulation = "remove" })
+end
+
+function M.replace_local_graph(id)
+  websocket.command("change-local-graph", { id = id, manipulation = "replace" })
 end
 
 return M

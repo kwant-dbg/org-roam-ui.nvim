@@ -26,14 +26,18 @@ Implemented:
 - Optional hooks exist for future `create` and `delete` support.
 - Refresh graph data on org file save.
 - Push `follow`, `zoom`, `local`, and `theme` commands to the browser.
+- Compute heading node `olp` (outline-level path) by walking the org file.
+- Serialize `refs`, `aliases`, and forwarded properties (`NOTER_PAGE`, `ROAM_REFS`, `ROAM_ALIASES`).
+- Export the live Neovim colorscheme as theme data via `auto_sync_theme`.
+- Auto-follow cursor node on buffer switch via `follow_on_switch`.
+- Toggle auto-follow at runtime with `OrgRoamUiToggleFollow`.
+- Add/remove/replace nodes in the local graph via WebSocket commands.
 
 Known incomplete areas:
 
 - Full parity with Emacs `org-roam-ui` is not finished.
 - Browser create/delete note flows are not implemented by default.
 - Citation/ref support is basic and does not match Emacs org-roam + org-roam-bibtex.
-- Heading node `olp` is currently `null` unless supplied by `org-roam.nvim`.
-- Theme sync is config-driven, not a real Neovim colorscheme export.
 - The vendored frontend is patched post-build; a cleaner source-level build flow
   should replace this later.
 
@@ -108,6 +112,9 @@ Other commands:
 :OrgRoamUiFollow
 :OrgRoamUiSyncTheme
 :OrgRoamUiGraphData
+:OrgRoamUiToggleFollow
+:OrgRoamUiAddToLocalGraph
+:OrgRoamUiRemoveFromLocalGraph
 ```
 
 ## Configuration
@@ -122,6 +129,8 @@ require("org-roam-ui-nvim").setup({
   static_dir = nil,
   open_on_start = false,
   refresh_on_save = true,
+  follow_on_switch = false,
+  auto_sync_theme = false,
   org_roam = nil,
 })
 ```
@@ -135,13 +144,15 @@ Options:
   `web/org-roam-ui`.
 - `open_on_start`: Open the browser with `vim.ui.open()`.
 - `refresh_on_save`: Re-index saved org files and broadcast graph updates.
+- `follow_on_switch`: Automatically follow the cursor node when switching org buffers.
+- `auto_sync_theme`: Extract and broadcast the live Neovim colorscheme as theme data on connect.
 - `org_roam`: Test/development injection point for a mocked org-roam instance.
 - `roam_dir`: Override roam directory for frontend variables.
 - `daily_dir`: Override daily notes directory for frontend variables.
 - `attach_dir`: Override org attach directory for frontend variables.
 - `use_inheritance`: Passed through to frontend org attachment rendering.
 - `katex_macros`: Passed through to frontend org/KaTeX renderer.
-- `theme`: Data broadcast by `:OrgRoamUiSyncTheme`.
+- `theme`: Static theme data broadcast by `:OrgRoamUiSyncTheme` (overridden by `auto_sync_theme`).
 
 ## Architecture
 
@@ -290,10 +301,12 @@ nvim --headless -i NONE \
 
 ## Roadmap
 
-- Replace generated-JS frontend patching with a source-level frontend fork.
-- Add true browser create/delete support.
-- Improve heading node `olp` generation.
-- Add richer org-roam properties and refs.
-- Implement citation/ref parity where `org-roam.nvim` can expose the data.
-- Add end-to-end browser tests with Playwright.
-- Package as a normal public plugin instead of a local prototype.
+- [ ] Replace generated-JS frontend patching with a source-level frontend fork.
+- [ ] Add true browser create/delete support.
+- [ ] Implement citation/ref parity where `org-roam.nvim` can expose the data.
+- [ ] Add end-to-end browser tests with Playwright.
+- [ ] Package as a normal public plugin instead of a local prototype.
+- [x] Improve heading node `olp` generation.
+- [x] Add richer org-roam properties and refs.
+- [x] Export live Neovim colorscheme as theme data.
+- [x] Auto-follow cursor node on buffer switch.

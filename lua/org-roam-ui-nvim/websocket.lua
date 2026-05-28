@@ -217,6 +217,25 @@ local function handle_message(client, payload)
   end
 
   vim.schedule(function()
+    local function broadcast_after(result)
+      if result == false then
+        return
+      end
+
+      if type(result) == "table" and type(result.next) == "function" then
+        local next_result = result:next(function()
+          M.broadcast_graphdata()
+        end)
+        if type(next_result) == "table" and type(next_result.catch) == "function" then
+          next_result:catch(function(err)
+            vim.notify(tostring(err), vim.log.levels.ERROR, { title = "org-roam-ui.nvim" })
+          end)
+        end
+      else
+        M.broadcast_graphdata()
+      end
+    end
+
     if message.command == "open" and message.data and message.data.id then
       config.open_node(message.data.id)
     elseif message.command == "refresh" then
@@ -224,11 +243,9 @@ local function handle_message(client, payload)
     elseif message.command == "getText" and message.data and message.data.id then
       send_json(client, "orgText", config.node_text(message.data.id) or "error")
     elseif message.command == "delete" and config.delete_node and message.data then
-      config.delete_node(message.data)
-      M.broadcast_graphdata()
+      broadcast_after(config.delete_node(message.data))
     elseif message.command == "create" and config.create_node and message.data then
-      config.create_node(message.data)
-      M.broadcast_graphdata()
+      broadcast_after(config.create_node(message.data))
     end
   end)
 end

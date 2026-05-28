@@ -14,6 +14,10 @@ local defaults = {
   follow_on_switch = false,
   auto_sync_theme = false,
   org_roam = nil,
+  create_immediate = false,
+  create_node = nil,
+  delete_node = nil,
+  confirm_delete = nil,
 }
 
 M.config = vim.deepcopy(defaults)
@@ -84,37 +88,62 @@ local function get_roam()
   return roam
 end
 
+local function notify_error(message)
+  vim.notify(message, vim.log.levels.ERROR, { title = "org-roam-ui.nvim" })
+end
+
+local function normalize_path(path)
+  return vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+end
+
+local function path_is_inside(path, root)
+  local normalized_path = normalize_path(path)
+  local normalized_root = normalize_path(root)
+  return normalized_path == normalized_root or vim.startswith(normalized_path, normalized_root .. "/")
+end
+
+local function default_confirm_delete(args)
+  local choice = vim.fn.confirm(
+    ("Delete org-roam note file?\n%s"):format(args.file),
+    "&Delete\n&Cancel",
+    2,
+    "Warning"
+  )
+  return choice == 1
+end
+
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
+  local command_opts = { force = true }
 
   vim.api.nvim_create_user_command("OrgRoamUiStart", function()
     M.start()
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiStop", function()
     M.stop()
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiGraphData", function()
     local data = M.graph_data()
     vim.print(data)
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiRefresh", function()
     M.refresh()
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiFollow", function()
     M.follow_node_at_cursor()
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiSyncTheme", function()
     M.sync_theme()
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiToggleFollow", function()
     M.toggle_follow()
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiAddToLocalGraph", function()
     local roam = get_roam()
@@ -126,7 +155,7 @@ function M.setup(opts)
         M.add_to_local_graph(node.id)
       end
     end)
-  end, {})
+  end, command_opts)
 
   vim.api.nvim_create_user_command("OrgRoamUiRemoveFromLocalGraph", function()
     local roam = get_roam()
@@ -138,7 +167,7 @@ function M.setup(opts)
         M.remove_from_local_graph(node.id)
       end
     end)
-  end, {})
+  end, command_opts)
 
   if M.config.refresh_on_save then
     local group = vim.api.nvim_create_augroup("org_roam_ui_nvim_refresh", { clear = true })
@@ -258,6 +287,8 @@ function M.start()
     variables = M.variables,
     node_text = M.node_text,
     open_node = M.open_node,
+    create_node = M.config.create_node or M.create_node,
+    delete_node = M.config.delete_node or M.delete_node,
   })
 
   if M.config.open_on_start then
@@ -337,6 +368,82 @@ end
 
 function M.replace_local_graph(id)
   websocket.command("change-local-graph", { id = id, manipulation = "replace" })
+end
+
+function M.create_node(data)
+  data = data or {}
+  local roam = get_roam()
+  if not roam or not roam.api or not roam.api.capture_node then
+    notify_error("org-roam.nvim capture API is not available")
+    return false
+  end
+
+  return roam.api.capture_node({
+    title = data.title,
+    origin = data.origin,
+    immediate = data.immediate == true or M.config.create_immediate == true,
+  })
+end
+
+function M.delete_node(data)
+  data = data or {}
+  if type(data.id) ~= "string" or type(data.file) ~= "string" then
+    notify_error("delete command requires node id and file")
+    return false
+  end
+
+  local roam = get_roam()
+  if not roam or not roam.database then
+    notify_error("org-roam.nvim database is not available")
+    return false
+  end
+
+  local node = roam.database:get_sync(data.id)
+  if not node then
+    notify_error(("node not found: %s"):format(data.id))
+    return false
+  end
+
+  if (node.level or 0) ~= 0 then
+    notify_error("browser delete is only supported for file-level nodes")
+    return false
+  end
+
+  local file = normalize_path(node.file)
+  if file ~= normalize_path(data.file) then
+    notify_error("delete command file does not match the node file")
+    return false
+  end
+
+  local roam_dir = M.variables().roamDir
+  if not path_is_inside(file, roam_dir) then
+    notify_error(("refusing to delete file outside roam directory: %s"):format(file))
+    return false
+  end
+
+  local bufnr = vim.fn.bufnr(file)
+  if bufnr > 0 and vim.bo[bufnr].modified then
+    notify_error(("refusing to delete modified buffer: %s"):format(file))
+    return false
+  end
+
+  local confirm = M.config.confirm_delete or default_confirm_delete
+  if not confirm({ id = data.id, file = file, node = node }) then
+    return false
+  end
+
+  if vim.fn.delete(file) ~= 0 then
+    notify_error(("failed to delete file: %s"):format(file))
+    return false
+  end
+
+  if roam.database.load then
+    return roam.database:load({ force = "scan" }):next(function()
+      return true
+    end)
+  end
+
+  return true
 end
 
 return M

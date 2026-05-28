@@ -36,6 +36,7 @@ test.beforeAll(async () => {
     "nvim",
     [
       "--headless",
+      "--noplugin",
       "-i",
       "NONE",
       "-u",

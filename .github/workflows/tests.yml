@@ -5,16 +5,21 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  NVIM_VERSION: v0.12.2
+
 jobs:
   plenary:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Neovim and curl
+      - name: Install Neovim
         run: |
-          sudo apt-get update
-          sudo apt-get install -y neovim curl
+          curl -fsSL "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz" -o nvim.tar.gz
+          tar -xzf nvim.tar.gz
+          echo "$PWD/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          "$PWD/nvim-linux-x86_64/bin/nvim" --version | head -n 1
 
       - name: Install plenary.nvim
         run: |
@@ -34,8 +39,10 @@ jobs:
 
       - name: Install Neovim
         run: |
-          sudo apt-get update
-          sudo apt-get install -y neovim
+          curl -fsSL "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-x86_64.tar.gz" -o nvim.tar.gz
+          tar -xzf nvim.tar.gz
+          echo "$PWD/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          "$PWD/nvim-linux-x86_64/bin/nvim" --version | head -n 1
 
       - uses: actions/setup-node@v4
         with:

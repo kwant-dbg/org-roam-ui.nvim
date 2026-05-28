@@ -312,7 +312,7 @@ nvim --headless -i NONE \
 
 ## Roadmap
 
-- [ ] Add true browser create/delete support.
+- [ ] Vendor patched frontend source directly (remove upstream patch dependency).
 - [ ] Implement citation/ref parity where `org-roam.nvim` can expose the data.
 - [ ] Add end-to-end browser tests with Playwright.
 - [ ] Package as a normal public plugin instead of a local prototype.

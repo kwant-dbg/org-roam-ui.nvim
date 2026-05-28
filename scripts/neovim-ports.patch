@@ -187,3 +187,72 @@ index 8e285e6..3de99c5 100644
        .then((res) => {
          return res.text()
        })
+diff --git a/components/Sidebar/noteStyle.ts b/components/Sidebar/noteStyle.ts
+index 73830ce..04be31b 100644
+--- a/components/Sidebar/noteStyle.ts
++++ b/components/Sidebar/noteStyle.ts
+@@ -6,25 +6,12 @@
+   '.outlineHeadingButton': {
+     display: 'none',
+   },
+-  h1: { color: 'black', lineHeight: '1.2', fontSize: '16', fontWeight: 'bold', paddingTop: 2 },
+-  h2: {
+-    fontSize: '14',
+-    color: 'black',
+-    fontWeight: 'bold',
+-    fontStyle: 'bold italic',
+-    paddingTop: 2,
+-  },
+-  h3: {
+-    fontSize: '13',
+-    color: 'black',
+-    paddingTop: 2,
+-  },
+-  h4: {
+-    fontSize: '12',
+-    fontStyle: 'italic',
+-    color: 'black',
+-    paddingTop: 2,
+-  },
++  h1: { color: '#e6c384', lineHeight: '1.2', fontSize: '17', fontWeight: 'bold', paddingTop: 2 },
++  h2: { color: '#7e9cd8', lineHeight: '1.2', fontSize: '15', fontWeight: 'bold', paddingTop: 2 },
++  h3: { color: '#98bb6c', lineHeight: '1.2', fontSize: '14', fontWeight: 'bold', paddingTop: 2 },
++  h4: { color: '#a292a3', lineHeight: '1.2', fontSize: '13', fontWeight: 'bold', paddingTop: 2 },
++  h5: { color: '#c4b28a', lineHeight: '1.2', fontSize: '12', fontWeight: 'bold', paddingTop: 2 },
++  h6: { color: '#87a987', lineHeight: '1.2', fontSize: '12', paddingTop: 2 },
+
+   '.sectionContent': {
+     paddingTop: 2,
+@@ -54,13 +41,14 @@
+     //borderLeftWidth: '1px',
+     //borderLeftColor: 'gray.600',
+   },
+-  'h1,h2,h3,h4,h5,h6,h7,h8': {
+-    pl: 1,
+-    lineHeight: '1.25',
+-    color: 'black',
+-    fontSize: 15,
+-    fontWeight: 700,
+-  },
++  h1: { pl: 1, lineHeight: '1.25', color: '#e6c384', fontSize: 17, fontWeight: 700 },
++  h2: { pl: 1, lineHeight: '1.25', color: '#7e9cd8', fontSize: 16, fontWeight: 700 },
++  h3: { pl: 1, lineHeight: '1.25', color: '#98bb6c', fontSize: 15, fontWeight: 700 },
++  h4: { pl: 1, lineHeight: '1.25', color: '#a292a3', fontSize: 14, fontWeight: 700 },
++  h5: { pl: 1, lineHeight: '1.25', color: '#c4b28a', fontSize: 13, fontWeight: 700 },
++  h6: { pl: 1, lineHeight: '1.25', color: '#87a987', fontSize: 13, fontWeight: 700 },
++  h7: { pl: 1, lineHeight: '1.25', color: '#8ba4b0', fontSize: 12, fontWeight: 700 },
++  h8: { pl: 1, lineHeight: '1.25', color: '#938aa9', fontSize: 12, fontWeight: 700 },
+   '.sec': {
+     pt: 1,
+   },
+@@ -95,6 +83,10 @@
+     fontWeight: '500 !important',
+     pb: 2,
+   },
++  strong: { color: '#c4746e', fontWeight: 'bold' },
++  em: { color: '#8ba4b0', fontStyle: 'italic' },
++  code: { color: '#c4b28a', backgroundColor: '#1a1a1a', borderRadius: '3px', padding: '0 3px' },
++  del: { color: '#625e5a' },
+   div: {
+     hyphens: 'auto !important',
+   },

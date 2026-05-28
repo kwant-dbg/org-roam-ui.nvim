@@ -1,0 +1,17 @@
+:OrgRoamUiAddToLocalGraph	org-roam-ui-nvim.txt	/*:OrgRoamUiAddToLocalGraph*
+:OrgRoamUiFollow	org-roam-ui-nvim.txt	/*:OrgRoamUiFollow*
+:OrgRoamUiGraphData	org-roam-ui-nvim.txt	/*:OrgRoamUiGraphData*
+:OrgRoamUiRefresh	org-roam-ui-nvim.txt	/*:OrgRoamUiRefresh*
+:OrgRoamUiRemoveFromLocalGraph	org-roam-ui-nvim.txt	/*:OrgRoamUiRemoveFromLocalGraph*
+:OrgRoamUiStart	org-roam-ui-nvim.txt	/*:OrgRoamUiStart*
+:OrgRoamUiStop	org-roam-ui-nvim.txt	/*:OrgRoamUiStop*
+:OrgRoamUiSyncTheme	org-roam-ui-nvim.txt	/*:OrgRoamUiSyncTheme*
+:OrgRoamUiToggleFollow	org-roam-ui-nvim.txt	/*:OrgRoamUiToggleFollow*
+org-roam-ui-nvim	org-roam-ui-nvim.txt	/*org-roam-ui-nvim*
+org-roam-ui-nvim-commands	org-roam-ui-nvim.txt	/*org-roam-ui-nvim-commands*
+org-roam-ui-nvim-configuration	org-roam-ui-nvim.txt	/*org-roam-ui-nvim-configuration*
+org-roam-ui-nvim-contents	org-roam-ui-nvim.txt	/*org-roam-ui-nvim-contents*
+org-roam-ui-nvim-installation	org-roam-ui-nvim.txt	/*org-roam-ui-nvim-installation*
+org-roam-ui-nvim-protocol	org-roam-ui-nvim.txt	/*org-roam-ui-nvim-protocol*
+org-roam-ui-nvim-requirements	org-roam-ui-nvim.txt	/*org-roam-ui-nvim-requirements*
+org-roam-ui-nvim.txt	org-roam-ui-nvim.txt	/*org-roam-ui-nvim.txt*

@@ -1,0 +1,166 @@
+*org-roam-ui-nvim.txt*  Browser graph UI for org-roam.nvim
+
+==============================================================================
+CONTENTS                                             *org-roam-ui-nvim-contents*
+
+1. Overview                                            |org-roam-ui-nvim|
+2. Requirements                                |org-roam-ui-nvim-requirements|
+3. Installation                                |org-roam-ui-nvim-installation|
+4. Commands                                        |org-roam-ui-nvim-commands|
+5. Configuration                              |org-roam-ui-nvim-configuration|
+6. Browser protocol                              |org-roam-ui-nvim-protocol|
+
+==============================================================================
+OVERVIEW                                             *org-roam-ui-nvim*
+
+org-roam-ui.nvim serves a patched static org-roam-ui frontend and a Neovim/Lua
+backend for graph data from chipsenkbeil/org-roam.nvim.
+
+Default endpoints:
+>
+  http://127.0.0.1:35911/
+  ws://127.0.0.1:35913/
+<
+
+==============================================================================
+REQUIREMENTS                                 *org-roam-ui-nvim-requirements*
+
+- Neovim with LuaJIT
+- nvim-orgmode/orgmode
+- chipsenkbeil/org-roam.nvim
+- a populated org-roam.nvim database
+
+==============================================================================
+INSTALLATION                                 *org-roam-ui-nvim-installation*
+
+With lazy.nvim:
+>
+  {
+    "kwant-dbg/org-roam-ui.nvim",
+    dependencies = {
+      "nvim-orgmode/orgmode",
+      "chipsenkbeil/org-roam.nvim",
+    },
+    cmd = {
+      "OrgRoamUiStart",
+      "OrgRoamUiStop",
+      "OrgRoamUiRefresh",
+      "OrgRoamUiFollow",
+      "OrgRoamUiSyncTheme",
+      "OrgRoamUiGraphData",
+      "OrgRoamUiToggleFollow",
+      "OrgRoamUiAddToLocalGraph",
+      "OrgRoamUiRemoveFromLocalGraph",
+    },
+    config = function()
+      require("org-roam-ui-nvim").setup()
+    end,
+  }
+<
+
+==============================================================================
+COMMANDS                                         *org-roam-ui-nvim-commands*
+
+                                                        *:OrgRoamUiStart*
+:OrgRoamUiStart
+    Start the HTTP and WebSocket servers.
+
+                                                         *:OrgRoamUiStop*
+:OrgRoamUiStop
+    Stop the HTTP and WebSocket servers.
+
+                                                      *:OrgRoamUiRefresh*
+:OrgRoamUiRefresh
+    Broadcast updated variables and graph data to connected browsers.
+
+                                                       *:OrgRoamUiFollow*
+:OrgRoamUiFollow
+    Send a follow command for the org-roam node under the cursor.
+
+                                                    *:OrgRoamUiSyncTheme*
+:OrgRoamUiSyncTheme
+    Broadcast configured or extracted theme data.
+
+                                                    *:OrgRoamUiGraphData*
+:OrgRoamUiGraphData
+    Print the current serialized graph data.
+
+                                                 *:OrgRoamUiToggleFollow*
+:OrgRoamUiToggleFollow
+    Toggle automatic browser follow on org buffer switch.
+
+                                             *:OrgRoamUiAddToLocalGraph*
+:OrgRoamUiAddToLocalGraph
+    Add the node under the cursor to the browser local graph.
+
+                                          *:OrgRoamUiRemoveFromLocalGraph*
+:OrgRoamUiRemoveFromLocalGraph
+    Remove the node under the cursor from the browser local graph.
+
+==============================================================================
+CONFIGURATION                               *org-roam-ui-nvim-configuration*
+
+Defaults:
+>
+  require("org-roam-ui-nvim").setup({
+    host = "127.0.0.1",
+    port = 35911,
+    websocket_port = 35913,
+    static_dir = nil,
+    open_on_start = false,
+    refresh_on_save = true,
+    follow_on_switch = false,
+    auto_sync_theme = false,
+    create_immediate = false,
+    org_roam = nil,
+  })
+<
+
+Options:
+- host: bind address for HTTP and WebSocket.
+- port: HTTP/static frontend port.
+- websocket_port: WebSocket port.
+- static_dir: override static frontend directory.
+- open_on_start: open the browser with vim.ui.open().
+- refresh_on_save: re-index saved org files and broadcast graph updates.
+- follow_on_switch: follow the cursor node when switching org buffers.
+- auto_sync_theme: broadcast the live Neovim colorscheme on connect.
+- create_immediate: use org-roam.nvim immediate capture for browser create.
+- org_roam: test/development injection point.
+- create_node: override browser create handling.
+- delete_node: override browser delete handling.
+- confirm_delete: override default delete confirmation.
+- roam_dir: override roam directory for frontend variables.
+- daily_dir: override daily notes directory for frontend variables.
+- attach_dir: override org attach directory for frontend variables.
+- use_inheritance: passed to frontend org attachment rendering.
+- katex_macros: passed to frontend org/KaTeX renderer.
+- theme: static theme data for :OrgRoamUiSyncTheme.
+
+==============================================================================
+BROWSER PROTOCOL                                  *org-roam-ui-nvim-protocol*
+
+HTTP endpoints:
+>
+  GET /                       static frontend index
+  GET /graphdata              { nodes, links, tags }
+  GET /variables              frontend runtime variables
+  GET /node/:id               plain org text
+  GET /img/:encoded_path      local image bytes
+<
+
+Browser commands handled by the backend:
+>
+  open
+  getText
+  refresh
+  create
+  delete
+<
+
+Browser delete is guarded. The default handler only deletes file-level nodes
+inside the configured roam directory after Neovim confirmation.
+
+==============================================================================
+ vim:tw=78:ts=8:noet:ft=help:norl:
+

@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  plenary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim and curl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y neovim curl
+
+      - name: Install plenary.nvim
+        run: |
+          mkdir -p "$HOME/.local/share/nvim/lazy"
+          git clone --depth=1 https://github.com/nvim-lua/plenary.nvim "$HOME/.local/share/nvim/lazy/plenary.nvim"
+
+      - name: Run tests
+        run: |
+          REPO_ROOT="$(pwd)"
+          nvim --headless -u "$REPO_ROOT/tests/minimal_init.lua" \
+            -c "PlenaryBustedDirectory $REPO_ROOT/tests { minimal_init = '$REPO_ROOT/tests/minimal_init.lua' }"
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y neovim
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: npm run test:e2e -- --project=chromium

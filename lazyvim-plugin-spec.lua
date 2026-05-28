@@ -1,8 +1,21 @@
 return {
   {
-    dir = "/path/to/org-roam-ui.nvim",
-    name = "org-roam-ui-nvim",
-    dependencies = { "chipsenkbeil/org-roam.nvim" },
+    "kwant-dbg/org-roam-ui.nvim",
+    dependencies = {
+      "nvim-orgmode/orgmode",
+      "chipsenkbeil/org-roam.nvim",
+    },
+    cmd = {
+      "OrgRoamUiStart",
+      "OrgRoamUiStop",
+      "OrgRoamUiRefresh",
+      "OrgRoamUiFollow",
+      "OrgRoamUiSyncTheme",
+      "OrgRoamUiGraphData",
+      "OrgRoamUiToggleFollow",
+      "OrgRoamUiAddToLocalGraph",
+      "OrgRoamUiRemoveFromLocalGraph",
+    },
     config = function()
       require("org-roam-ui-nvim").setup({
         port = 35911,

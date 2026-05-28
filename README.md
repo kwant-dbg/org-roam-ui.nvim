@@ -10,7 +10,8 @@ the browser app expects.
 
 ## Status
 
-This is an early working prototype.
+This is a working Neovim plugin. It is installable with standard plugin
+managers and includes a vendored static frontend, help docs, and tests.
 
 Implemented:
 
@@ -22,8 +23,7 @@ Implemented:
 - Run HTTP on `127.0.0.1:35911`.
 - Run WebSocket on `127.0.0.1:35913`.
 - Send initial `variables`, `graphdata`, and `theme` WebSocket messages.
-- Handle browser commands: `open`, `getText`, `refresh`.
-- Optional hooks exist for future `create` and `delete` support.
+- Handle browser commands: `open`, `getText`, `refresh`, `create`, `delete`.
 - Refresh graph data on org file save.
 - Push `follow`, `zoom`, `local`, and `theme` commands to the browser.
 - Compute heading node `olp` (outline-level path) by walking the org file.
@@ -36,7 +36,9 @@ Implemented:
 Known incomplete areas:
 
 - Full parity with Emacs `org-roam-ui` is not finished.
-- Browser create/delete note flows are not implemented by default.
+- Browser delete is guarded: only file-level nodes inside the configured roam
+  directory are deleted, and Neovim asks for confirmation before removing the
+  file.
 - Citation/ref support is basic and does not match Emacs org-roam + org-roam-bibtex.
 
 ## Requirements
@@ -53,14 +55,27 @@ set `LAZY_PATH` to the directory containing `plenary.nvim`.
 
 ## Installation
 
-With Lazy.nvim or LazyVim:
+With lazy.nvim or LazyVim:
 
 ```lua
 return {
   {
-    dir = "/path/to/org-roam-ui.nvim",
-    name = "org-roam-ui-nvim",
-    dependencies = { "chipsenkbeil/org-roam.nvim" },
+    "kwant-dbg/org-roam-ui.nvim",
+    dependencies = {
+      "nvim-orgmode/orgmode",
+      "chipsenkbeil/org-roam.nvim",
+    },
+    cmd = {
+      "OrgRoamUiStart",
+      "OrgRoamUiStop",
+      "OrgRoamUiRefresh",
+      "OrgRoamUiFollow",
+      "OrgRoamUiSyncTheme",
+      "OrgRoamUiGraphData",
+      "OrgRoamUiToggleFollow",
+      "OrgRoamUiAddToLocalGraph",
+      "OrgRoamUiRemoveFromLocalGraph",
+    },
     config = function()
       require("org-roam-ui-nvim").setup({
         port = 35911,
@@ -71,10 +86,22 @@ return {
 }
 ```
 
-For local development in this workspace, the provided example is:
+For local development, use `dir` instead of the GitHub repository:
 
-```text
-lazyvim-plugin-spec.lua
+```lua
+return {
+  {
+    dir = "/path/to/org-roam-ui.nvim",
+    name = "org-roam-ui-nvim",
+    dependencies = {
+      "nvim-orgmode/orgmode",
+      "chipsenkbeil/org-roam.nvim",
+    },
+    config = function()
+      require("org-roam-ui-nvim").setup()
+    end,
+  },
+}
 ```
 
 ## Usage
@@ -115,6 +142,12 @@ Other commands:
 :OrgRoamUiRemoveFromLocalGraph
 ```
 
+Help:
+
+```vim
+:h org-roam-ui-nvim
+```
+
 ## Configuration
 
 Defaults:
@@ -129,6 +162,7 @@ require("org-roam-ui-nvim").setup({
   refresh_on_save = true,
   follow_on_switch = false,
   auto_sync_theme = false,
+  create_immediate = false,
   org_roam = nil,
 })
 ```
@@ -144,7 +178,11 @@ Options:
 - `refresh_on_save`: Re-index saved org files and broadcast graph updates.
 - `follow_on_switch`: Automatically follow the cursor node when switching org buffers.
 - `auto_sync_theme`: Extract and broadcast the live Neovim colorscheme as theme data on connect.
+- `create_immediate`: Use `org-roam.nvim` immediate capture for browser create commands.
 - `org_roam`: Test/development injection point for a mocked org-roam instance.
+- `create_node`: Override browser create handling. Receives browser command data.
+- `delete_node`: Override browser delete handling. Receives browser command data.
+- `confirm_delete`: Override the Neovim confirmation function used by default delete handling.
 - `roam_dir`: Override roam directory for frontend variables.
 - `daily_dir`: Override daily notes directory for frontend variables.
 - `attach_dir`: Override org attach directory for frontend variables.
@@ -249,6 +287,8 @@ Browser commands accepted:
 { "command": "open", "data": { "id": "..." } }
 { "command": "getText", "data": { "id": "..." } }
 { "command": "refresh", "data": {} }
+{ "command": "create", "data": { "title": "...", "origin": "..." } }
+{ "command": "delete", "data": { "id": "...", "file": "..." } }
 ```
 
 ## Frontend
@@ -289,6 +329,9 @@ Expected coverage:
 - WebSocket accept key and frame encode/decode
 - command registration
 
+CI runs the Plenary suite and Playwright browser tests on pushes and pull
+requests.
+
 Live backend smoke test:
 
 ```sh
@@ -305,6 +348,8 @@ nvim --headless -i NONE \
 - Empty JSON objects must use `vim.empty_dict()`. Otherwise `vim.json.encode`
   turns empty Lua tables into arrays (`[]`), which breaks frontend assumptions.
 - WebSocket frames from browsers are masked. Server frames must not be masked.
+- Browser create/delete handlers may return orgmode promises; graphdata is
+  broadcast after the promise resolves.
 - The default ports intentionally differ from Emacs `org-roam-ui` to avoid
   collisions.
 - Static frontend tests should check for patched Neovim ports, not just file
@@ -314,10 +359,14 @@ nvim --headless -i NONE \
 
 - [ ] Vendor patched frontend source directly (remove upstream patch dependency).
 - [ ] Implement citation/ref parity where `org-roam.nvim` can expose the data.
-- [ ] Add end-to-end browser tests with Playwright.
-- [ ] Package as a normal public plugin instead of a local prototype.
+- [x] Add end-to-end browser tests with Playwright.
+- [x] Package as a normal public plugin instead of a local prototype.
 - [x] Replace generated-JS frontend patching with a source-level frontend fork.
 - [x] Improve heading node `olp` generation.
 - [x] Add richer org-roam properties and refs.
 - [x] Export live Neovim colorscheme as theme data.
 - [x] Auto-follow cursor node on buffer switch.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

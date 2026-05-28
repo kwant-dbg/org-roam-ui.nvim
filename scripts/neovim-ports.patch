@@ -1,0 +1,106 @@
+diff --git a/components/Sidebar/Link.tsx b/components/Sidebar/Link.tsx
+index 73830ce..04be31a 100644
+--- a/components/Sidebar/Link.tsx
++++ b/components/Sidebar/Link.tsx
+@@ -67,6 +67,7 @@ import { defaultNoteStyle, viewerNoteStyle, outlineNoteStyle } from './noteStyle
+ import { Scrollbars } from 'react-custom-scrollbars-2'
+ import { ExternalLinkIcon } from '@chakra-ui/icons'
+ import { getThemeColor } from '../../util/getThemeColor'
++import { HTTP_BASE } from '../../lib/backend'
+ 
+ export const NodeLink = (props: NodeLinkProps) => {
+   const {
+@@ -151,7 +152,7 @@ export const PreviewLink = (props: LinkProps) => {
+   const extraNoteStyle = outline ? outlineNoteStyle : viewerNoteStyle
+   console.log(previewNode)
+   const getText = () => {
+-    fetch(`http://localhost:35901/node/${id}`)
++    fetch(`${HTTP_BASE}/node/${id}`)
+       .then((res) => {
+         return res.text()
+       })
+diff --git a/components/Sidebar/OrgImage.tsx b/components/Sidebar/OrgImage.tsx
+index f371f49..44c61b4 100644
+--- a/components/Sidebar/OrgImage.tsx
++++ b/components/Sidebar/OrgImage.tsx
+@@ -3,6 +3,7 @@ import React, { useState } from 'react'
+ import Image from 'next/image'
+ import path from 'path'
+ import { Container } from '@chakra-ui/react'
++import { HTTP_BASE } from '../../lib/backend'
+ //import '../../../public/placeholder.png'
+ 
+ export interface OrgImageProps {
+@@ -28,7 +29,7 @@ export const OrgImage = (props: OrgImageProps) => {
+     return `${src}`
+   }
+   const homeLoader = ({ src, width, quality }: { [key: string]: string | number }) => {
+-    return `http://localhost:35901/img/${src}`
++    return `${HTTP_BASE}/img/${src}`
+   }
+ 
+   if (src.replaceAll(/(http)?.*/g, '$1')) {
+@@ -47,7 +48,7 @@ export const OrgImage = (props: OrgImageProps) => {
+ 
+   return (
+     <Container my={4} position="relative">
+-      <img alt="Wow, an image." src={`http://localhost:35901/img/${encodedPath}`} />
++      <img alt="Wow, an image." src={`${HTTP_BASE}/img/${encodedPath}`} />
+     </Container>
+   )
+ }
+diff --git a/lib/backend.ts b/lib/backend.ts
+new file mode 100644
+index 0000000..4522734
+--- /dev/null
++++ b/lib/backend.ts
+@@ -0,0 +1,7 @@
++const httpHost = process.env.NEXT_PUBLIC_HTTP_HOST ?? '127.0.0.1'
++const httpPort = process.env.NEXT_PUBLIC_HTTP_PORT ?? '35911'
++const wsHost = process.env.NEXT_PUBLIC_WS_HOST ?? '127.0.0.1'
++const wsPort = process.env.NEXT_PUBLIC_WS_PORT ?? '35913'
++
++export const HTTP_BASE = `http://${httpHost}:${httpPort}`
++export const WS_URL = `ws://${wsHost}:${wsPort}`
+diff --git a/pages/index.tsx b/pages/index.tsx
+index 8770283..fc44242 100644
+--- a/pages/index.tsx
++++ b/pages/index.tsx
+@@ -62,6 +62,7 @@ import { nodeSize } from '../util/nodeSize'
+ import { getNodeColor } from '../util/getNodeColor'
+ import { isLinkRelatedToNode } from '../util/isLinkRelatedToNode'
+ import { getLinkColor } from '../util/getLinkColor'
++import { WS_URL } from '../lib/backend'
+ 
+ const d3promise = import('d3-force-3d')
+ 
+@@ -430,7 +431,7 @@ export function GraphPage() {
+ 
+   useEffect(() => {
+     // initialize websocket
+-    WebSocketRef.current = new ReconnectingWebSocket('ws://localhost:35903')
++    WebSocketRef.current = new ReconnectingWebSocket(WS_URL)
+     WebSocketRef.current.addEventListener('open', () => {
+       console.log('Connection with Emacs established')
+     })
+diff --git a/util/uniorg.tsx b/util/uniorg.tsx
+index 8e285e6..3de99c5 100644
+--- a/util/uniorg.tsx
++++ b/util/uniorg.tsx
+@@ -1,6 +1,7 @@
+ import React, { useEffect, useMemo, useState } from 'react'
+ import { LinksByNodeId, NodeByCite, NodeById } from '../pages/index'
+ import { ProcessedOrg } from './processOrg'
++import { HTTP_BASE } from '../lib/backend'
+ 
+ export interface UniOrgProps {
+   nodeById: NodeById
+@@ -37,7 +38,7 @@ export const UniOrg = (props: UniOrgProps) => {
+ 
+   const id = encodeURIComponent(encodeURIComponent(previewNode.id))
+   useEffect(() => {
+-    fetch(`http://localhost:35901/node/${id}`)
++    fetch(`${HTTP_BASE}/node/${id}`)
+       .then((res) => {
+         return res.text()
+       })

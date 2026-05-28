@@ -2,6 +2,8 @@ local graph = require("org-roam-ui-nvim.graph")
 local server = require("org-roam-ui-nvim.server")
 local websocket = require("org-roam-ui-nvim.websocket")
 
+local uv = vim.uv or vim.loop
+
 local M = {}
 
 local defaults = {

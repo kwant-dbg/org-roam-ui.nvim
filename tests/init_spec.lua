@@ -44,6 +44,39 @@ describe("org-roam-ui-nvim entrypoint", function()
     assert.is_true(events.CursorMovedI)
   end)
 
+  it("auto-follow debounce handles org buffer events", function()
+    local followed_id
+    orui.setup({
+      open_on_start = false,
+      refresh_on_save = false,
+      follow_debounce_ms = 1,
+      org_roam = {
+        utils = {
+          node_under_cursor = function(cb)
+            cb({ id = "node-id" })
+          end,
+        },
+      },
+    })
+
+    local follow_node = orui.follow_node
+    orui.follow_node = function(id)
+      followed_id = id
+    end
+
+    vim.cmd.OrgRoamUiToggleFollow()
+    vim.cmd.edit(vim.fn.tempname() .. ".org")
+    vim.wait(1000, function()
+      return followed_id == "node-id"
+    end, 10)
+    vim.cmd.OrgRoamUiToggleFollow()
+
+    orui.follow_node = follow_node
+    vim.cmd.bwipeout({ bang = true })
+
+    assert.are.equal("node-id", followed_id)
+  end)
+
   it("creates nodes through org-roam.nvim capture", function()
     local captured_opts
     orui.setup({

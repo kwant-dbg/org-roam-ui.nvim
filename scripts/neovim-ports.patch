@@ -49,6 +49,33 @@ index f371f49..44c61b4 100644
      </Container>
    )
  }
+diff --git a/components/contextmenu.tsx b/components/contextmenu.tsx
+index 68c9908..81e396a 100644
+--- a/components/contextmenu.tsx
++++ b/components/contextmenu.tsx
+@@ -130,7 +130,7 @@ export const ContextMenu = (props: ContextMenuProps) => {
+                 <MenuItem
+                   icon={<EditIcon />}
+                   onClick={() => openNodeInEmacs(target as OrgRoamNode, webSocket)}
+                 >
+-                  Open in Emacs
++                  Open in Neovim
+                 </MenuItem>
+               ) : (
+                 <MenuItem icon={<AddIcon />} onClick={() => createNodeInEmacs(target, webSocket)}>
+diff --git a/components/Tweaks/Behavior/BehaviorPanel.tsx b/components/Tweaks/Behavior/BehaviorPanel.tsx
+index 1d9d3f7..f0c949f 100644
+--- a/components/Tweaks/Behavior/BehaviorPanel.tsx
++++ b/components/Tweaks/Behavior/BehaviorPanel.tsx
+@@ -85,7 +85,7 @@ export const BehaviorPanel = (props: BehaviorPanelProps) => {
+         </Menu>
+       </Flex>
+       <Flex alignItems="center" justifyContent="space-between">
+-        <Text>Open in Emacs</Text>
++        <Text>Open in Neovim</Text>
+         <Menu isLazy placement="right">
+           <MenuButton as={Button} rightIcon={<ChevronDownIcon />} colorScheme="" color="black">
+             <Text>
 diff --git a/lib/backend.ts b/lib/backend.ts
 new file mode 100644
 index 0000000..4522734
@@ -83,6 +110,62 @@ index 8770283..fc44242 100644
      WebSocketRef.current.addEventListener('open', () => {
        console.log('Connection with Emacs established')
      })
+diff --git a/util/processOrg.tsx b/util/processOrg.tsx
+index 2abc256..e71ad78 100644
+--- a/util/processOrg.tsx
++++ b/util/processOrg.tsx
+@@ -54,6 +54,25 @@ export interface ProcessedOrgProps {
+   useInheritance: boolean
+ }
+ 
++const normalizeOrgPreviewText = (text: string, level?: number | null): string => {
++  if (!level || level <= 1) {
++    return text
++  }
++
++  const starsToTrim = level - 1
++  return text
++    .split('\n')
++    .map((line) => {
++      const match = line.match(/^(\*+)(\s+)/)
++      if (!match || match[1].length < level) {
++        return line
++      }
++
++      return `${match[1].slice(starsToTrim)}${match[2]}${line.slice(match[0].length)}`
++    })
++    .join('\n')
++}
++
+ export const ProcessedOrg = (props: ProcessedOrgProps) => {
+   const {
+     nodeById,
+@@ -126,6 +145,13 @@ export const ProcessedOrg = (props: ProcessedOrgProps) => {
+ 
+   const isMarkdown = previewNode?.file?.slice(-3) === '.md'
+   const baseProcessor = isMarkdown ? mdProcessor : orgProcessor
++  const processedPreviewText = useMemo(
++    () =>
++      isMarkdown
++        ? previewText
++        : normalizeOrgPreviewText(previewText, previewNode?.level),
++    [isMarkdown, previewText, previewNode?.level],
++  )
+ 
+   const processor = useMemo(
+     () =>
+@@ -201,7 +227,10 @@ export const ProcessedOrg = (props: ProcessedOrgProps) => {
+     [previewNode?.id],
+   )
+ 
+-  const text = useMemo(() => processor.processSync(previewText).result, [previewText])
++  const text = useMemo(
++    () => processor.processSync(processedPreviewText).result,
++    [processor, processedPreviewText],
++  )
+   return (
+     <NoteContext.Provider value={{ collapse, outline }}>{text as ReactNode}</NoteContext.Provider>
+   )
 diff --git a/util/uniorg.tsx b/util/uniorg.tsx
 index 8e285e6..3de99c5 100644
 --- a/util/uniorg.tsx

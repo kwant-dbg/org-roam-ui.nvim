@@ -73,6 +73,8 @@ describe("org-roam-ui-nvim HTTP server", function()
 
     local html = response_body(server._handle_request("/"))
     assert.matches("__NEXT_DATA__", html, nil, true)
+    assert.matches("<title>Org Roam</title>", html, nil, true)
+    assert.matches('href="/favicon.svg"', html, nil, true)
 
     local chunk_path = html:match('src="([^"]+/_next/static/chunks/pages/index%-[^"]+%.js)"')
       or html:match('src="([^"]+_next/static/chunks/pages/index%-[^"]+%.js)"')
@@ -84,5 +86,9 @@ describe("org-roam-ui-nvim HTTP server", function()
     assert.matches("35911", chunk, nil, true)
     assert.is_nil(chunk:find("localhost:35903", 1, true))
     assert.is_nil(chunk:find("localhost:35901", 1, true))
+
+    local favicon = server._handle_request("/favicon.svg")
+    assert.matches("Content-Type: image/svg+xml", favicon, nil, true)
+    assert.matches("<svg", favicon, nil, true)
   end)
 end)

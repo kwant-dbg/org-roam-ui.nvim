@@ -12,6 +12,7 @@ local defaults = {
   open_on_start = false,
   refresh_on_save = true,
   follow_on_switch = false,
+  follow_debounce_ms = 100,
   auto_sync_theme = false,
   org_roam = nil,
   create_immediate = false,
@@ -24,6 +25,7 @@ M.config = vim.deepcopy(defaults)
 
 -- follow augroup id when auto-follow is active, nil otherwise
 local follow_group = nil
+local follow_timer = nil
 
 -- Map org-roam-ui theme color keys to Neovim highlight groups + attribute.
 local THEME_HL_MAP = {
@@ -110,6 +112,39 @@ local function default_confirm_delete(args)
     "Warning"
   )
   return choice == 1
+end
+
+local function stop_follow_timer()
+  if follow_timer and not follow_timer:is_closing() then
+    follow_timer:stop()
+    follow_timer:close()
+  end
+  follow_timer = nil
+end
+
+local function schedule_follow_node_at_cursor()
+  stop_follow_timer()
+
+  local delay = tonumber(M.config.follow_debounce_ms) or defaults.follow_debounce_ms
+  if delay <= 0 then
+    M.follow_node_at_cursor()
+    return
+  end
+
+  follow_timer = assert(uv.new_timer())
+  follow_timer:start(delay, 0, function()
+    local timer = follow_timer
+    follow_timer = nil
+    if timer and not timer:is_closing() then
+      timer:close()
+    end
+
+    vim.schedule(function()
+      if follow_group then
+        M.follow_node_at_cursor()
+      end
+    end)
+  end)
 end
 
 function M.setup(opts)
@@ -346,13 +381,14 @@ function M.toggle_follow()
   if follow_group then
     vim.api.nvim_del_augroup_by_id(follow_group)
     follow_group = nil
+    stop_follow_timer()
   else
     follow_group = vim.api.nvim_create_augroup("org_roam_ui_nvim_follow", { clear = true })
-    vim.api.nvim_create_autocmd("BufEnter", {
+    vim.api.nvim_create_autocmd({ "BufEnter", "CursorMoved", "CursorMovedI" }, {
       group = follow_group,
       pattern = "*.org",
       callback = function()
-        M.follow_node_at_cursor()
+        schedule_follow_node_at_cursor()
       end,
     })
   end

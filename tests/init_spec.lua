@@ -28,6 +28,22 @@ describe("org-roam-ui-nvim entrypoint", function()
     assert.is_truthy(commands.OrgRoamUiRemoveFromLocalGraph)
   end)
 
+  it("auto-follow tracks cursor movement in org buffers", function()
+    orui.setup({ open_on_start = false, refresh_on_save = false })
+
+    vim.cmd.OrgRoamUiToggleFollow()
+    local autocmds = vim.api.nvim_get_autocmds({ group = "org_roam_ui_nvim_follow" })
+    local events = {}
+    for _, autocmd in ipairs(autocmds) do
+      events[autocmd.event] = true
+    end
+    vim.cmd.OrgRoamUiToggleFollow()
+
+    assert.is_true(events.BufEnter)
+    assert.is_true(events.CursorMoved)
+    assert.is_true(events.CursorMovedI)
+  end)
+
   it("creates nodes through org-roam.nvim capture", function()
     local captured_opts
     orui.setup({

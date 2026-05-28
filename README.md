@@ -29,7 +29,7 @@ Implemented:
 - Compute heading node `olp` (outline-level path) by walking the org file.
 - Serialize `refs`, `aliases`, and forwarded properties (`NOTER_PAGE`, `ROAM_REFS`, `ROAM_ALIASES`).
 - Export the live Neovim colorscheme as theme data via `auto_sync_theme`.
-- Auto-follow cursor node on buffer switch via `follow_on_switch`.
+- Auto-follow cursor node on org buffer entry and cursor movement via `follow_on_switch`.
 - Toggle auto-follow at runtime with `OrgRoamUiToggleFollow`.
 - Add/remove/replace nodes in the local graph via WebSocket commands.
 
@@ -161,6 +161,7 @@ require("org-roam-ui-nvim").setup({
   open_on_start = false,
   refresh_on_save = true,
   follow_on_switch = false,
+  follow_debounce_ms = 100,
   auto_sync_theme = false,
   create_immediate = false,
   org_roam = nil,
@@ -176,7 +177,8 @@ Options:
   `web/org-roam-ui`.
 - `open_on_start`: Open the browser with `vim.ui.open()`.
 - `refresh_on_save`: Re-index saved org files and broadcast graph updates.
-- `follow_on_switch`: Automatically follow the cursor node when switching org buffers.
+- `follow_on_switch`: Automatically follow the cursor node when entering or moving inside org buffers.
+- `follow_debounce_ms`: Delay before auto-follow checks the cursor node after movement.
 - `auto_sync_theme`: Extract and broadcast the live Neovim colorscheme as theme data on connect.
 - `create_immediate`: Use `org-roam.nvim` immediate capture for browser create commands.
 - `org_roam`: Test/development injection point for a mocked org-roam instance.

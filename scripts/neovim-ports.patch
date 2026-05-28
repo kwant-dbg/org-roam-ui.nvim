@@ -118,9 +118,9 @@ index 2abc256..e71ad78 100644
    useInheritance: boolean
  }
  
-+const normalizeOrgPreviewText = (text: string, level?: number | null): string => {
++const normalizeOrgPreviewText = (text: string | null | undefined, level?: number | null): string => {
 +  const starsToTrim = Math.max((level ?? 1) - 1, 0)
-+  return text
++  return (text ?? '')
 +    .split('\n')
 +    .map((line) => {
 +      const match = line.match(/^\s*(\*+)(\s+)/)

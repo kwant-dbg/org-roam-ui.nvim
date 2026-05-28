@@ -38,8 +38,6 @@ Known incomplete areas:
 - Full parity with Emacs `org-roam-ui` is not finished.
 - Browser create/delete note flows are not implemented by default.
 - Citation/ref support is basic and does not match Emacs org-roam + org-roam-bibtex.
-- The vendored frontend is patched post-build; a cleaner source-level build flow
-  should replace this later.
 
 ## Requirements
 
@@ -153,6 +151,19 @@ Options:
 - `use_inheritance`: Passed through to frontend org attachment rendering.
 - `katex_macros`: Passed through to frontend org/KaTeX renderer.
 - `theme`: Static theme data broadcast by `:OrgRoamUiSyncTheme` (overridden by `auto_sync_theme`).
+
+## Rebuilding the Frontend
+
+The vendored `web/org-roam-ui` is built from source using:
+
+```sh
+bash scripts/build-frontend.sh
+```
+
+This clones upstream `org-roam-ui` at the pinned commit, applies
+`scripts/neovim-ports.patch` (which introduces `lib/backend.ts` to read
+Neovim ports from `NEXT_PUBLIC_*` env vars), builds a static export, and
+replaces `web/org-roam-ui/`. Requires `node` and `npm`.
 
 ## Architecture
 
@@ -301,11 +312,11 @@ nvim --headless -i NONE \
 
 ## Roadmap
 
-- [ ] Replace generated-JS frontend patching with a source-level frontend fork.
 - [ ] Add true browser create/delete support.
 - [ ] Implement citation/ref parity where `org-roam.nvim` can expose the data.
 - [ ] Add end-to-end browser tests with Playwright.
 - [ ] Package as a normal public plugin instead of a local prototype.
+- [x] Replace generated-JS frontend patching with a source-level frontend fork.
 - [x] Improve heading node `olp` generation.
 - [x] Add richer org-roam properties and refs.
 - [x] Export live Neovim colorscheme as theme data.

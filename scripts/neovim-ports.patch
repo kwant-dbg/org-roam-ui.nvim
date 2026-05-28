@@ -119,16 +119,12 @@ index 2abc256..e71ad78 100644
  }
  
 +const normalizeOrgPreviewText = (text: string, level?: number | null): string => {
-+  if (!level || level <= 1) {
-+    return text
-+  }
-+
-+  const starsToTrim = level - 1
++  const starsToTrim = Math.max((level ?? 1) - 1, 0)
 +  return text
 +    .split('\n')
 +    .map((line) => {
-+      const match = line.match(/^(\*+)(\s+)/)
-+      if (!match || match[1].length < level) {
++      const match = line.match(/^\s*(\*+)(\s+)/)
++      if (!match || match[1].length <= starsToTrim) {
 +        return line
 +      }
 +

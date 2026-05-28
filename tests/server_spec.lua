@@ -86,6 +86,8 @@ describe("org-roam-ui-nvim HTTP server", function()
     assert.matches("35911", chunk, nil, true)
     assert.is_nil(chunk:find("localhost:35903", 1, true))
     assert.is_nil(chunk:find("localhost:35901", 1, true))
+    assert.is_truthy(chunk:find("/^\\s*(\\*+)(\\s+)/", 1, true))
+    assert.is_truthy(chunk:find("Math.max((null!==", 1, true))
 
     local favicon = server._handle_request("/favicon.svg")
     assert.matches("Content-Type: image/svg+xml", favicon, nil, true)

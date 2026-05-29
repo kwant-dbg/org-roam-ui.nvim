@@ -1,17 +1,9 @@
 {
   "name": "Org Roam UI",
-  "short_name": "Org Roam",
-  "icons": [
-    {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
-  ],
+  "short_name": "ORUI",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#51afef",
+  "theme_color": "#227a40",
   "background_color": "#fff",
   "start_url": "/"
 }

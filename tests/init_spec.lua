@@ -84,6 +84,27 @@ describe("org-roam-ui-nvim entrypoint", function()
     end
   end)
 
+  it("does not throw when refreshed before server start", function()
+    orui.setup({ open_on_start = false, refresh_on_save = false })
+
+    with_silent_notify(function()
+      vim.cmd.OrgRoamUiRefresh()
+    end)
+  end)
+
+  it("keeps refresh_on_save autocmd setup idempotent", function()
+    orui.setup({ open_on_start = false, refresh_on_save = true })
+    orui.setup({ open_on_start = false, refresh_on_save = true })
+
+    local autocmds = vim.api.nvim_get_autocmds({ group = "org_roam_ui_nvim_refresh" })
+    assert.are.equal(1, #autocmds)
+    assert.are.equal("BufWritePost", autocmds[1].event)
+
+    orui.setup({ open_on_start = false, refresh_on_save = false })
+    autocmds = vim.api.nvim_get_autocmds({ group = "org_roam_ui_nvim_refresh" })
+    assert.are.equal(0, #autocmds)
+  end)
+
   it("documents registered user commands in vimdoc", function()
     local doc_path = vim.fs.joinpath(vim.fn.getcwd(), "doc", "org-roam-ui-nvim.txt")
     local doc = table.concat(vim.fn.readfile(doc_path), "\n")
@@ -104,6 +125,26 @@ describe("org-roam-ui-nvim entrypoint", function()
     end
     vim.cmd.OrgRoamUiToggleFollow()
 
+    assert.is_true(events.BufEnter)
+    assert.is_true(events.CursorMoved)
+    assert.is_true(events.CursorMovedI)
+  end)
+
+  it("keeps follow_on_switch enabled across repeated setup", function()
+    orui.disable_follow()
+
+    orui.setup({ open_on_start = false, refresh_on_save = false, follow_on_switch = true })
+    orui.setup({ open_on_start = false, refresh_on_save = false, follow_on_switch = true })
+
+    local autocmds = vim.api.nvim_get_autocmds({ group = "org_roam_ui_nvim_follow" })
+    local events = {}
+    for _, autocmd in ipairs(autocmds) do
+      events[autocmd.event] = true
+    end
+
+    orui.disable_follow()
+
+    assert.are.equal(3, #autocmds)
     assert.is_true(events.BufEnter)
     assert.is_true(events.CursorMoved)
     assert.is_true(events.CursorMovedI)
@@ -631,6 +672,62 @@ describe("org-roam-ui-nvim entrypoint", function()
 
     graph.find_subdirectories = original_find_subdirectories
     orui.refresh = original_refresh
+    vim.cmd.bwipeout({ bang = true })
+
+    assert.is_true(refresh_called)
+  end)
+
+  it("refreshes saved org files after async load_file rejects", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local file = vim.fs.joinpath(dir, "note.org")
+    vim.fn.writefile({ "#+title: Note" }, file)
+
+    local reject_load
+    local refresh_called = false
+
+    orui.setup({
+      open_on_start = false,
+      refresh_on_save = true,
+      roam_dir = dir,
+      org_roam = {
+        database = {
+          load_file = function()
+            return {
+              next = function(self)
+                return self
+              end,
+              catch = function(self, cb)
+                reject_load = cb
+                return self
+              end,
+            }
+          end,
+        },
+      },
+    })
+
+    local original_refresh = orui.refresh
+    local notify = vim.notify
+    orui.refresh = function()
+      refresh_called = true
+    end
+    vim.notify = function() end
+
+    vim.cmd("silent keepalt noswapfile edit " .. vim.fn.fnameescape(file))
+    local ok, err = pcall(vim.cmd.write)
+
+    assert.is_true(ok, err)
+    assert.is_function(reject_load)
+    assert.is_false(refresh_called)
+
+    reject_load("load failed")
+    vim.wait(1000, function()
+      return refresh_called
+    end, 10)
+
+    orui.refresh = original_refresh
+    vim.notify = notify
     vim.cmd.bwipeout({ bang = true })
 
     assert.is_true(refresh_called)

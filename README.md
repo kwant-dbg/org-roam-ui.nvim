@@ -369,6 +369,14 @@ nvim --headless -i NONE \
 - [x] Export live Neovim colorscheme as theme data.
 - [x] Auto-follow cursor node on buffer switch.
 
+## Credits
+
+- [org-roam.nvim](https://github.com/chipsenkbeil/org-roam.nvim) by Chip Senkbeil
+  — the Neovim org-roam database backend that this plugin reads graph data from.
+- [org-roam-ui](https://github.com/org-roam/org-roam-ui) by the org-roam
+  community — the browser-based graph visualisation that this plugin serves as a
+  static frontend.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

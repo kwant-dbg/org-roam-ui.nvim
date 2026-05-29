@@ -150,9 +150,16 @@ end
 local function refresh_after_load(load_result)
   if type(load_result) == "table" and type(load_result.next) == "function" then
     local ok = pcall(function()
-      load_result:next(function()
+      local chained = load_result:next(function()
         schedule_refresh()
       end)
+      local catch_target = chained or load_result
+      if type(catch_target) == "table" and type(catch_target.catch) == "function" then
+        catch_target:catch(function(err)
+          notify_error(("failed to refresh org-roam file: %s"):format(err or "unknown error"))
+          schedule_refresh()
+        end)
+      end
     end)
     if ok then
       return
@@ -193,6 +200,63 @@ local function schedule_follow_node_at_cursor()
       end
     end)
   end)
+end
+
+local function configure_refresh_on_save(enabled)
+  local group = vim.api.nvim_create_augroup("org_roam_ui_nvim_refresh", { clear = true })
+  if not enabled then
+    return
+  end
+
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    pattern = "*.org",
+    callback = function()
+      local path = vim.fn.expand("%:p")
+      local roam = get_roam()
+      local roam_dir = get_roam_dir()
+      if not roam or not roam.database or not path_is_inside(path, roam_dir) then
+        return
+      end
+
+      local ok, load_result = pcall(function()
+        if roam.database.load_file then
+          return roam.database:load_file({ path = path, force = true })
+        end
+      end)
+      if ok then
+        refresh_after_load(load_result)
+      else
+        notify_error(("failed to refresh org-roam file: %s"):format(load_result or "unknown error"))
+        schedule_refresh()
+      end
+    end,
+  })
+end
+
+function M.enable_follow()
+  if follow_group then
+    return
+  end
+
+  follow_group = vim.api.nvim_create_augroup("org_roam_ui_nvim_follow", { clear = true })
+  vim.api.nvim_create_autocmd({ "BufEnter", "CursorMoved", "CursorMovedI" }, {
+    group = follow_group,
+    pattern = "*.org",
+    callback = function()
+      schedule_follow_node_at_cursor()
+    end,
+  })
+end
+
+function M.disable_follow()
+  if not follow_group then
+    return
+  end
+
+  vim.api.nvim_del_augroup_by_id(follow_group)
+  follow_group = nil
+  stop_follow_timer()
 end
 
 function M.setup(opts)
@@ -252,35 +316,10 @@ function M.setup(opts)
     end)
   end, command_opts)
 
-  if M.config.refresh_on_save then
-    local group = vim.api.nvim_create_augroup("org_roam_ui_nvim_refresh", { clear = true })
-    vim.api.nvim_create_autocmd("BufWritePost", {
-      group = group,
-      pattern = "*.org",
-      callback = function()
-        local path = vim.fn.expand("%:p")
-        local roam = get_roam()
-        local roam_dir = get_roam_dir()
-        if not roam or not roam.database or not path_is_inside(path, roam_dir) then
-          return
-        end
-
-        local ok, load_result = pcall(function()
-          if roam.database.load_file then
-            return roam.database:load_file({ path = path, force = true })
-          end
-        end)
-        if ok then
-          refresh_after_load(load_result)
-        else
-          schedule_refresh()
-        end
-      end,
-    })
-  end
+  configure_refresh_on_save(M.config.refresh_on_save)
 
   if M.config.follow_on_switch then
-    M.toggle_follow()
+    M.enable_follow()
   end
 end
 
@@ -383,7 +422,6 @@ end
 function M.start()
   local static_dir = M.config.static_dir or default_static_dir()
 
-  local http_started = false
   server.start({
     host = M.config.host,
     port = M.config.port,
@@ -394,7 +432,6 @@ function M.start()
     open_node = M.open_node,
     theme = M.theme,
   })
-  http_started = true
 
   local ok, err = pcall(websocket.start, {
     host = M.config.host,
@@ -408,9 +445,7 @@ function M.start()
     delete_node = M.config.delete_node or M.delete_node,
   })
   if not ok then
-    if http_started then
-      server.stop()
-    end
+    server.stop()
     error(err)
   end
 
@@ -425,8 +460,13 @@ function M.stop()
 end
 
 function M.refresh()
-  websocket.broadcast_variables()
-  websocket.broadcast_graphdata()
+  local ok, err = pcall(function()
+    websocket.broadcast_variables()
+    websocket.broadcast_graphdata()
+  end)
+  if not ok then
+    notify_error(("failed to refresh org-roam-ui browser data: %s"):format(err))
+  end
 end
 
 function M.follow_node(id)
@@ -467,18 +507,9 @@ end
 
 function M.toggle_follow()
   if follow_group then
-    vim.api.nvim_del_augroup_by_id(follow_group)
-    follow_group = nil
-    stop_follow_timer()
+    M.disable_follow()
   else
-    follow_group = vim.api.nvim_create_augroup("org_roam_ui_nvim_follow", { clear = true })
-    vim.api.nvim_create_autocmd({ "BufEnter", "CursorMoved", "CursorMovedI" }, {
-      group = follow_group,
-      pattern = "*.org",
-      callback = function()
-        schedule_follow_node_at_cursor()
-      end,
-    })
+    M.enable_follow()
   end
 end
 

@@ -203,13 +203,24 @@ function M.links_from_nodes(nodes)
 end
 
 local function all_nodes_from_core_db(core_db)
+  if type(core_db) ~= "table" then
+    return nil, "org-roam.nvim database is unavailable"
+  end
+
   local raw_nodes = rawget(core_db, "__nodes")
-  assert(type(raw_nodes) == "table", "org-roam.nvim internal node table is unavailable")
+  if type(raw_nodes) ~= "table" then
+    return nil, "org-roam.nvim internal node table is unavailable"
+  end
+
   return raw_nodes
 end
 
 function M.from_core_database(core_db)
-  local raw_nodes = all_nodes_from_core_db(core_db)
+  local raw_nodes, err = all_nodes_from_core_db(core_db)
+  if not raw_nodes then
+    return nil, err
+  end
+
   local nodes = {}
   local tags = {}
   local olp_cache = {}

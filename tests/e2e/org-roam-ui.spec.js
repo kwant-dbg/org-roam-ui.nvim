@@ -6,6 +6,8 @@ const { spawn } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "../..");
 const readyTimeoutMs = 10000;
+const httpPort = process.env.ORUI_E2E_HTTP_PORT;
+const wsPort = process.env.ORUI_E2E_WS_PORT;
 
 let nvim;
 let tempDir;
@@ -26,6 +28,10 @@ async function waitForFile(file, timeoutMs) {
 }
 
 test.beforeAll(async () => {
+  if (!httpPort || !wsPort) {
+    throw new Error("ORUI_E2E_HTTP_PORT and ORUI_E2E_WS_PORT must be set by Playwright config");
+  }
+
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-roam-ui-nvim-e2e-"));
   const readyFile = path.join(tempDir, "ready");
   const roamDir = path.join(tempDir, "roam");
@@ -50,6 +56,8 @@ test.beforeAll(async () => {
         ...process.env,
         ORUI_E2E_READY: readyFile,
         ORUI_E2E_ROAM_DIR: roamDir,
+        ORUI_E2E_HTTP_PORT: httpPort,
+        ORUI_E2E_WS_PORT: wsPort,
       },
       stdio: ["ignore", out, out],
     }
@@ -80,7 +88,28 @@ test.afterAll(async () => {
 
 test("renders the vendored graph UI from the Neovim backend", async ({ page }) => {
   const messages = [];
+  const websocketUrls = [];
+
+  await page.route("**/*.js", async (route) => {
+    const response = await route.fetch();
+    const headers = { ...response.headers() };
+    delete headers["content-length"];
+
+    // The vendored static export bakes NEXT_PUBLIC_* values at build time.
+    // Rewrite test-loaded assets so e2e can isolate ports without rebuilding.
+    const body = (await response.text())
+      .replaceAll("35911", httpPort)
+      .replaceAll("35913", wsPort);
+
+    await route.fulfill({
+      response,
+      headers,
+      body,
+    });
+  });
+
   page.on("websocket", (ws) => {
+    websocketUrls.push(ws.url());
     ws.on("framereceived", (frame) => {
       try {
         messages.push(JSON.parse(frame.payload));
@@ -102,6 +131,9 @@ test("renders the vendored graph UI from the Neovim backend", async ({ page }) =
 
   await page.goto("/");
 
+  await expect
+    .poll(() => websocketUrls.some((url) => url === `ws://127.0.0.1:${wsPort}/`))
+    .toBe(true);
   await expect
     .poll(() => messages.some((message) => message.type === "variables"))
     .toBe(true);

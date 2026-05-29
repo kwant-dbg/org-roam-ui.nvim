@@ -2,6 +2,7 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 local server
+local clients = {}
 local config
 
 local status_text = {
@@ -178,35 +179,56 @@ local function parse_path(request)
   return (path:gsub("%?.*$", ""))
 end
 
+local function is_closing(handle)
+  return handle.is_closing and handle:is_closing()
+end
+
+local function close_handle(handle)
+  if handle and not is_closing(handle) then
+    handle:close()
+  end
+end
+
+local function close_client(client)
+  clients[client] = nil
+  close_handle(client)
+end
+
 function M.start(opts)
   if server then
     return
   end
 
   config = opts
-  server = assert(uv.new_tcp())
-  assert(server:bind(opts.host, opts.port))
-  server:listen(128, function(err)
+  local listener = assert(uv.new_tcp())
+  local ok, err = listener:bind(opts.host, opts.port)
+  if not ok then
+    close_handle(listener)
+    error(err or ("failed to bind " .. opts.host .. ":" .. opts.port))
+  end
+
+  ok, err = listener:listen(128, function(err)
     assert(not err, err)
 
     local client = assert(uv.new_tcp())
-    local accepted = server:accept(client)
+    local accepted = listener:accept(client)
     if not accepted then
-      client:close()
+      close_handle(client)
       return
     end
 
+    clients[client] = true
     local buffer = ""
     client:read_start(function(read_err, chunk)
       if read_err or not chunk then
-        client:close()
+        close_client(client)
         return
       end
 
       buffer = buffer .. chunk
       if #buffer > MAX_HEADER_SIZE then
         client:write(response(431, "request header too large"), function()
-          client:close()
+          close_client(client)
         end)
         return
       end
@@ -220,7 +242,7 @@ function M.start(opts)
       client:read_stop()
       local path = parse_path(request)
       vim.schedule(function()
-        if client:is_closing() then
+        if is_closing(client) then
           return
         end
 
@@ -230,19 +252,33 @@ function M.start(opts)
         end
 
         client:write(body, function()
-          client:close()
+          close_client(client)
         end)
       end)
     end)
   end)
+
+  if not ok then
+    close_handle(listener)
+    error(err or ("failed to listen on " .. opts.host .. ":" .. opts.port))
+  end
+
+  server = listener
 end
 
 function M.stop()
-  if not server then
-    return
+  while true do
+    local client = next(clients)
+    if not client then
+      break
+    end
+    close_client(client)
   end
-  server:close()
-  server = nil
+
+  if server then
+    close_handle(server)
+    server = nil
+  end
 end
 
 return M

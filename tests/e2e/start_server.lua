@@ -1,6 +1,8 @@
 local repo_root = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(debug.getinfo(1, "S").source:sub(2))))
 local ready_file = assert(vim.env.ORUI_E2E_READY, "ORUI_E2E_READY is required")
 local roam_dir = assert(vim.env.ORUI_E2E_ROAM_DIR, "ORUI_E2E_ROAM_DIR is required")
+local http_port = assert(tonumber(vim.env.ORUI_E2E_HTTP_PORT), "ORUI_E2E_HTTP_PORT is required")
+local websocket_port = assert(tonumber(vim.env.ORUI_E2E_WS_PORT), "ORUI_E2E_WS_PORT is required")
 
 vim.fn.mkdir(roam_dir, "p")
 
@@ -59,6 +61,9 @@ local database = {
 
 local orui = require("org-roam-ui-nvim")
 orui.setup({
+  host = "127.0.0.1",
+  port = http_port,
+  websocket_port = websocket_port,
   open_on_start = false,
   refresh_on_save = false,
   org_roam = {

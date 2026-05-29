@@ -18,6 +18,12 @@ local defaults = {
   auto_sync_theme = false,
   org_roam = nil,
   create_immediate = false,
+  roam_dir = nil,
+  daily_dir = nil,
+  attach_dir = nil,
+  use_inheritance = false,
+  katex_macros = vim.empty_dict(),
+  theme = vim.empty_dict(),
   create_node = nil,
   delete_node = nil,
   confirm_delete = nil,
@@ -100,11 +106,15 @@ local function get_roam_dir()
     roam_dir = roam.database:files_path()
   end
 
-  return roam_dir or vim.fn.expand("~/notes/roam")
+  return roam_dir
 end
 
 local function notify_error(message)
   vim.notify(message, vim.log.levels.ERROR, { title = "org-roam-ui.nvim" })
+end
+
+local function empty_graph()
+  return { nodes = {}, links = {}, tags = {} }
 end
 
 local function normalize_path(path)
@@ -112,6 +122,10 @@ local function normalize_path(path)
 end
 
 local function path_is_inside(path, root)
+  if not root or root == "" then
+    return false
+  end
+
   local normalized_path = normalize_path(path)
   local normalized_root = normalize_path(root)
   return normalized_path == normalized_root or vim.startswith(normalized_path, normalized_root .. "/")
@@ -272,26 +286,46 @@ end
 
 function M.graph_data()
   local roam = get_roam()
-  assert(roam and roam.database, "org-roam.nvim is not available")
-  return graph.from_database(roam.database)
+  if not roam or not roam.database then
+    notify_error("org-roam.nvim database is not available")
+    return empty_graph()
+  end
+
+  local data, err = graph.from_database(roam.database)
+  if not data then
+    notify_error(err or "failed to read org-roam.nvim graph data")
+    return empty_graph()
+  end
+
+  return data
 end
 
 function M.variables()
   local roam_dir = get_roam_dir()
+  local daily_dir = M.config.daily_dir
+  local attach_dir = M.config.attach_dir
+
+  if roam_dir and roam_dir ~= "" then
+    daily_dir = daily_dir or vim.fs.joinpath(roam_dir, "daily")
+    attach_dir = attach_dir or vim.fs.joinpath(roam_dir, ".attach")
+  end
 
   return {
-    subDirs = graph.find_subdirectories(roam_dir),
-    dailyDir = M.config.daily_dir or (roam_dir .. "/daily"),
-    attachDir = M.config.attach_dir or vim.fn.expand("~/notes/.attach"),
-    useInheritance = M.config.use_inheritance or false,
-    roamDir = roam_dir,
-    katexMacros = M.config.katex_macros or {},
+    subDirs = roam_dir and roam_dir ~= "" and graph.find_subdirectories(roam_dir) or {},
+    dailyDir = daily_dir or "",
+    attachDir = attach_dir or "",
+    useInheritance = M.config.use_inheritance == true,
+    roamDir = roam_dir or "",
+    katexMacros = M.config.katex_macros,
   }
 end
 
 function M.node_text(id)
   local roam = get_roam()
-  assert(roam and roam.database, "org-roam.nvim is not available")
+  if not roam or not roam.database then
+    notify_error("org-roam.nvim database is not available")
+    return nil
+  end
 
   local node = roam.database:get_sync(id)
   if not node then
@@ -303,14 +337,26 @@ end
 
 function M.open_node(id)
   local roam = get_roam()
-  assert(roam and roam.database, "org-roam.nvim is not available")
+  if not roam or not roam.database then
+    notify_error("org-roam.nvim database is not available")
+    return false
+  end
 
   local node = roam.database:get_sync(id)
   if not node then
     return false
   end
 
-  vim.cmd.edit(vim.fn.fnameescape(node.file))
+  if vim.fn.filereadable(node.file) == 0 then
+    notify_error(("node file is not readable: %s"):format(node.file))
+    return false
+  end
+
+  local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(node.file))
+  if not ok then
+    notify_error(("failed to open node file: %s"):format(err))
+    return false
+  end
 
   if node.range and node.range.start then
     local row = (node.range.start.row or 0) + 1
@@ -337,6 +383,7 @@ end
 function M.start()
   local static_dir = M.config.static_dir or default_static_dir()
 
+  local http_started = false
   server.start({
     host = M.config.host,
     port = M.config.port,
@@ -347,8 +394,9 @@ function M.start()
     open_node = M.open_node,
     theme = M.theme,
   })
+  http_started = true
 
-  websocket.start({
+  local ok, err = pcall(websocket.start, {
     host = M.config.host,
     port = M.config.websocket_port,
     http_port = M.config.port,
@@ -359,6 +407,12 @@ function M.start()
     create_node = M.config.create_node or M.create_node,
     delete_node = M.config.delete_node or M.delete_node,
   })
+  if not ok then
+    if http_started then
+      server.stop()
+    end
+    error(err)
+  end
 
   if M.config.open_on_start then
     vim.ui.open(("http://%s:%d"):format(M.config.host, M.config.port))
@@ -486,6 +540,11 @@ function M.delete_node(data)
   end
 
   local roam_dir = get_roam_dir()
+  if not roam_dir or roam_dir == "" then
+    notify_error("roam_dir is required to delete notes")
+    return false
+  end
+
   if not path_is_inside(file, roam_dir) then
     notify_error(("refusing to delete file outside roam directory: %s"):format(file))
     return false

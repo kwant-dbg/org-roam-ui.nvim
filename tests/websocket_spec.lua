@@ -1,6 +1,58 @@
 local websocket = require("org-roam-ui-nvim.websocket")
 local uv = vim.uv or vim.loop
 
+local function fake_tcp_handle(opts)
+  opts = opts or {}
+  local handle = {
+    closed = false,
+    is_closing = function(self)
+      return self.closed
+    end,
+    close = function(self)
+      self.closed = true
+    end,
+    bind = opts.bind
+      or function()
+        return true
+      end,
+    listen = opts.listen
+      or function(_, _, cb)
+        opts.listen_cb = cb
+        return true
+      end,
+    accept = opts.accept
+      or function()
+        return true
+      end,
+    read_start = opts.read_start
+      or function(self, cb)
+        self.read_cb = cb
+        return true
+      end,
+    write = opts.write
+      or function(_, _, cb)
+        if cb then
+          cb()
+        end
+        return true
+      end,
+  }
+  return handle
+end
+
+local function with_fake_tcp(handles, fn)
+  local original_new_tcp = uv.new_tcp
+  local index = 0
+  uv.new_tcp = function()
+    index = index + 1
+    return handles[index]
+  end
+
+  local ok, err = pcall(fn)
+  uv.new_tcp = original_new_tcp
+  assert.is_true(ok, err)
+end
+
 local function handshake_request(origin)
   return table.concat({
     "GET / HTTP/1.1",
@@ -27,6 +79,84 @@ end
 describe("org-roam-ui-nvim websocket protocol", function()
   after_each(function()
     websocket.stop()
+  end)
+
+  it("closes failed listen handles and remains startable", function()
+    local failed = fake_tcp_handle({
+      listen = function()
+        return nil, "EADDRINUSE"
+      end,
+    })
+    local healthy = fake_tcp_handle()
+
+    with_fake_tcp({ failed, healthy }, function()
+      local ok = pcall(websocket.start, {
+        host = "127.0.0.1",
+        port = 39989,
+        http_port = 35911,
+        graph_data = function()
+          return { nodes = {}, links = {}, tags = {} }
+        end,
+        variables = function()
+          return {}
+        end,
+        node_text = function() end,
+        open_node = function() end,
+      })
+
+      assert.is_false(ok)
+      assert.is_true(failed.closed)
+
+      websocket.start({
+        host = "127.0.0.1",
+        port = 39989,
+        http_port = 35911,
+        graph_data = function()
+          return { nodes = {}, links = {}, tags = {} }
+        end,
+        variables = function()
+          return {}
+        end,
+        node_text = function() end,
+        open_node = function() end,
+      })
+      websocket.stop()
+      assert.is_true(healthy.closed)
+    end)
+  end)
+
+  it("closes pre-handshake clients on stop", function()
+    local listen_cb
+    local listener = fake_tcp_handle({
+      listen = function(_, _, cb)
+        listen_cb = cb
+        return true
+      end,
+    })
+    local client = fake_tcp_handle()
+
+    with_fake_tcp({ listener, client }, function()
+      websocket.start({
+        host = "127.0.0.1",
+        port = 39989,
+        http_port = 35911,
+        graph_data = function()
+          return { nodes = {}, links = {}, tags = {} }
+        end,
+        variables = function()
+          return {}
+        end,
+        node_text = function() end,
+        open_node = function() end,
+      })
+
+      listen_cb()
+      assert.is_false(client.closed)
+
+      websocket.stop()
+      assert.is_true(client.closed)
+      assert.is_true(listener.closed)
+    end)
   end)
 
   it("computes the RFC websocket accept key", function()

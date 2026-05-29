@@ -165,6 +165,15 @@ require("org-roam-ui-nvim").setup({
   auto_sync_theme = false,
   create_immediate = false,
   org_roam = nil,
+  roam_dir = nil,
+  daily_dir = nil,
+  attach_dir = nil,
+  use_inheritance = false,
+  katex_macros = {},
+  theme = {},
+  create_node = nil,
+  delete_node = nil,
+  confirm_delete = nil,
 })
 ```
 
@@ -185,9 +194,15 @@ Options:
 - `create_node`: Override browser create handling. Receives browser command data.
 - `delete_node`: Override browser delete handling. Receives browser command data.
 - `confirm_delete`: Override the Neovim confirmation function used by default delete handling.
-- `roam_dir`: Override roam directory for frontend variables.
-- `daily_dir`: Override daily notes directory for frontend variables.
-- `attach_dir`: Override org attach directory for frontend variables.
+- `roam_dir`: Override roam directory for frontend variables. Defaults to
+  `org-roam.nvim`'s database path. If neither is available, the frontend receives
+  an empty string and subdirectory scanning is skipped.
+- `daily_dir`: Override daily notes directory for frontend variables. Defaults to
+  `daily` inside the resolved roam directory, or an empty string without a
+  resolved roam directory.
+- `attach_dir`: Override org attach directory for frontend variables. Defaults to
+  `.attach` inside the resolved roam directory, or an empty string without a
+  resolved roam directory.
 - `use_inheritance`: Passed through to frontend org attachment rendering.
 - `katex_macros`: Passed through to frontend org/KaTeX renderer.
 - `theme`: Static theme data broadcast by `:OrgRoamUiSyncTheme` (overridden by `auto_sync_theme`).

@@ -58,6 +58,13 @@ describe("org-roam-ui-nvim graph serialization", function()
     assert.are.same({ { source = "a", target = "b", type = "id" } }, data.links)
   end)
 
+  it("reports missing org-roam.nvim private node table without throwing", function()
+    local data, err = graph.from_core_database({})
+
+    assert.is_nil(data)
+    assert.are.equal("org-roam.nvim internal node table is unavailable", err)
+  end)
+
   it("extracts headline text by byte range", function()
     local path = "/tmp/org-roam-ui-nvim-node.org"
     vim.fn.writefile({ "#+title: Test", "* One", "body", "* Two" }, path)

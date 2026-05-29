@@ -8,6 +8,7 @@ local MAX_HEADER_SIZE = 16 * 1024
 
 local server
 local clients = {}
+local connections = {}
 local config
 
 local function rol(value, bits)
@@ -184,15 +185,31 @@ function M.decode_frame(frame)
   }
 end
 
+local function is_closing(handle)
+  return handle.is_closing and handle:is_closing()
+end
+
+local function close_handle(handle)
+  if handle and not is_closing(handle) then
+    handle:close()
+  end
+end
+
+local function close_client(client)
+  clients[client] = nil
+  connections[client] = nil
+  close_handle(client)
+end
+
 local function send(client, payload)
-  if client:is_closing() then
+  if is_closing(client) then
     return
   end
   client:write(M.encode_frame(payload))
 end
 
 local function send_pong(client, payload)
-  if client:is_closing() then
+  if is_closing(client) then
     return
   end
   client:write(M.encode_frame(payload, 0xA))
@@ -204,7 +221,7 @@ end
 
 local function send_initial(client)
   vim.schedule(function()
-    if client:is_closing() then
+    if is_closing(client) then
       return
     end
     send_json(client, "variables", config.variables())
@@ -396,25 +413,30 @@ function M.start(opts)
   end
 
   config = opts
-  server = assert(uv.new_tcp())
-  assert(server:bind(opts.host, opts.port))
-  server:listen(128, function(err)
+  local listener = assert(uv.new_tcp())
+  local ok, err = listener:bind(opts.host, opts.port)
+  if not ok then
+    close_handle(listener)
+    error(err or ("failed to bind " .. opts.host .. ":" .. opts.port))
+  end
+
+  ok, err = listener:listen(128, function(err)
     assert(not err, err)
 
     local client = assert(uv.new_tcp())
     local buffer = ""
     local handshaken = false
 
-    local accepted = server:accept(client)
+    local accepted = listener:accept(client)
     if not accepted then
-      client:close()
+      close_handle(client)
       return
     end
 
+    connections[client] = true
     client:read_start(function(read_err, chunk)
       if read_err or not chunk then
-        clients[client] = nil
-        client:close()
+        close_client(client)
         return
       end
 
@@ -422,7 +444,7 @@ function M.start(opts)
       if not handshaken then
         if #buffer > MAX_HEADER_SIZE then
           client:write(http_error(400, "request header too large"), function()
-            client:close()
+            close_client(client)
           end)
           return
         end
@@ -434,7 +456,7 @@ function M.start(opts)
         local response, err_response = handshake_response(buffer)
         if not response then
           client:write(err_response or http_error(400, "bad request"), function()
-            client:close()
+            close_client(client)
           end)
           return
         end
@@ -456,8 +478,7 @@ function M.start(opts)
 
         buffer = buffer:sub(frame.consumed + 1)
         if frame.opcode == 0x8 then
-          clients[client] = nil
-          client:close()
+          close_client(client)
           return
         elseif frame.opcode == 0x9 then
           send_pong(client, frame.payload)
@@ -467,18 +488,27 @@ function M.start(opts)
       end
     end)
   end)
+
+  if not ok then
+    close_handle(listener)
+    error(err or ("failed to listen on " .. opts.host .. ":" .. opts.port))
+  end
+
+  server = listener
 end
 
 function M.stop()
-  for client in pairs(clients) do
-    if not client:is_closing() then
-      client:close()
+  while true do
+    local client = next(connections)
+    if not client then
+      break
     end
+    close_client(client)
   end
   clients = {}
 
   if server then
-    server:close()
+    close_handle(server)
     server = nil
   end
 end

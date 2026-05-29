@@ -12,6 +12,35 @@ local function write_binary(path, data)
   assert(uv.fs_close(fd))
 end
 
+local function request_raw(port, request)
+  local client = assert(uv.new_tcp())
+  local response = ""
+  local done = false
+
+  assert(client:connect("127.0.0.1", port, function(err)
+    assert.is_nil(err)
+    client:read_start(function(read_err, chunk)
+      assert.is_nil(read_err)
+      if chunk then
+        response = response .. chunk
+      else
+        done = true
+      end
+    end)
+    client:write(request)
+  end))
+
+  assert.is_true(vim.wait(2000, function()
+    return done
+  end))
+
+  if not client:is_closing() then
+    client:close()
+  end
+
+  return response
+end
+
 local function fake_tcp_handle(opts)
   opts = opts or {}
   local handle = {
@@ -192,6 +221,36 @@ describe("org-roam-ui-nvim HTTP server", function()
     assert.are.equal("* A", response_body(server._handle_request("/node/a")))
   end)
 
+  it("decodes encoded node ids and returns 404 for missing node text", function()
+    local seen_id
+    server.start({
+      host = "127.0.0.1",
+      port = 39992,
+      graph_data = function()
+        return { nodes = {}, links = {}, tags = {} }
+      end,
+      variables = function()
+        return {}
+      end,
+      node_text = function(id)
+        seen_id = id
+        if id == "node/slash%percent space" then
+          return "* Encoded"
+        end
+      end,
+    })
+
+    local encoded = vim.uri_encode("node/slash%percent space", "rfc2396")
+    local response = server._handle_request("/node/" .. encoded)
+    assert.are.equal("node/slash%percent space", seen_id)
+    assert.matches("HTTP/1.1 200 OK", response, nil, true)
+    assert.are.equal("* Encoded", response_body(response))
+
+    local missing = server._handle_request("/node/" .. vim.uri_encode("missing/id", "rfc2396"))
+    assert.matches("HTTP/1.1 404 Not Found", missing, nil, true)
+    assert.are.equal("error", response_body(missing))
+  end)
+
   it("does not emit wildcard CORS headers for private endpoints", function()
     server.start({
       host = "127.0.0.1",
@@ -254,6 +313,37 @@ describe("org-roam-ui-nvim HTTP server", function()
     assert.matches("HTTP/1.1 403 Forbidden", traversal_response, nil, true)
   end)
 
+  it("returns 404 for missing allowed images and rejects null-byte image paths", function()
+    local root = vim.fn.tempname()
+    local roam_dir = vim.fs.joinpath(root, "roam")
+    vim.fn.mkdir(roam_dir, "p")
+
+    server.start({
+      host = "127.0.0.1",
+      port = 39994,
+      graph_data = function()
+        return { nodes = {}, links = {}, tags = {} }
+      end,
+      variables = function()
+        return {
+          roamDir = roam_dir,
+          attachDir = "",
+        }
+      end,
+      node_text = function() end,
+    })
+
+    local missing = vim.fs.joinpath(roam_dir, "missing.png")
+    local missing_response = server._handle_request("/img/" .. vim.uri_encode(missing, "rfc2396"))
+    assert.matches("HTTP/1.1 404 Not Found", missing_response, nil, true)
+    assert.are.equal("error", response_body(missing_response))
+
+    local nul = vim.uri_encode(missing, "rfc2396") .. "%00.png"
+    local nul_response = server._handle_request("/img/" .. nul)
+    assert.matches("HTTP/1.1 403 Forbidden", nul_response, nil, true)
+    assert.are.equal("forbidden", response_body(nul_response))
+  end)
+
   it("waits for complete HTTP headers before handling a socket request", function()
     server.start({
       host = "127.0.0.1",
@@ -295,6 +385,42 @@ describe("org-roam-ui-nvim HTTP server", function()
     if not client:is_closing() then
       client:close()
     end
+  end)
+
+  it("returns 500 when a scheduled request handler raises", function()
+    server.start({
+      host = "127.0.0.1",
+      port = 39995,
+      graph_data = function()
+        error("graph exploded")
+      end,
+      variables = function()
+        return {}
+      end,
+      node_text = function() end,
+    })
+
+    local response = request_raw(39995, "GET /graphdata HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    assert.matches("HTTP/1.1 500 Internal Server Error", response, nil, true)
+    assert.matches("graph exploded", response, nil, true)
+  end)
+
+  it("returns 431 for oversized HTTP headers", function()
+    server.start({
+      host = "127.0.0.1",
+      port = 39996,
+      graph_data = function()
+        return { nodes = {}, links = {}, tags = {} }
+      end,
+      variables = function()
+        return {}
+      end,
+      node_text = function() end,
+    })
+
+    local response = request_raw(39996, "GET /variables HTTP/1.1\r\nX-Big: " .. string.rep("x", 17000) .. "\r\n")
+    assert.matches("HTTP/1.1 431 Request Header Fields Too Large", response, nil, true)
+    assert.are.equal("request header too large", response_body(response))
   end)
 
   it("serves static frontend files", function()

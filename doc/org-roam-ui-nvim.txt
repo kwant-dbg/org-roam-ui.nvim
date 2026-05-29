@@ -110,6 +110,7 @@ Defaults:
     open_on_start = false,
     refresh_on_save = true,
     follow_on_switch = false,
+    follow_debounce_ms = 100,
     auto_sync_theme = false,
     create_immediate = false,
     org_roam = nil,
@@ -124,6 +125,7 @@ Options:
 - open_on_start: open the browser with vim.ui.open().
 - refresh_on_save: re-index saved org files and broadcast graph updates.
 - follow_on_switch: follow the cursor node when switching org buffers.
+- follow_debounce_ms: delay before auto-follow checks the cursor node.
 - auto_sync_theme: broadcast the live Neovim colorscheme on connect.
 - create_immediate: use org-roam.nvim immediate capture for browser create.
 - org_roam: test/development injection point.
@@ -163,4 +165,3 @@ inside the configured roam directory after Neovim confirmation.
 
 ==============================================================================
  vim:tw=78:ts=8:noet:ft=help:norl:
-

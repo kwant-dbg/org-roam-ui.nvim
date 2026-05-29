@@ -89,4 +89,73 @@ describe("org-roam-ui-nvim graph serialization", function()
     assert.matches('"properties":{}', encoded, nil, true)
     assert.matches('"olp":null', encoded, nil, true)
   end)
+
+  it("computes nested outline paths from ancestor headings", function()
+    local path = "/tmp/org-roam-ui-nvim-olp.org"
+    local lines = {
+      "#+title: Test",
+      "* Parent",
+      "** Older",
+      "** Child",
+      "*** Leaf",
+      "body",
+    }
+    vim.fn.writefile(lines, path)
+
+    local text = table.concat(lines, "\n")
+    local parent_offset = text:find("* Parent", 1, true) - 1
+    local child_offset = text:find("** Child", 1, true) - 1
+    local leaf_offset = text:find("*** Leaf", 1, true) - 1
+
+    local data = graph.from_core_database({
+      __nodes = {
+        parent = {
+          id = "parent",
+          file = path,
+          title = "Parent",
+          level = 1,
+          tags = {},
+          linked = {},
+          range = { start = pos(parent_offset), end_ = pos(child_offset) },
+        },
+        child = {
+          id = "child",
+          file = path,
+          title = "Child",
+          level = 2,
+          tags = {},
+          linked = {},
+          range = { start = pos(child_offset), end_ = pos(leaf_offset) },
+        },
+        leaf = {
+          id = "leaf",
+          file = path,
+          title = "Leaf",
+          level = 3,
+          tags = {},
+          linked = {},
+          range = { start = pos(leaf_offset), end_ = pos(#text) },
+        },
+      },
+    })
+
+    local by_id = {}
+    for _, node in ipairs(data.nodes) do
+      by_id[node.id] = node
+    end
+
+    assert.are.same({ "Parent", "Child" }, by_id.leaf.olp)
+  end)
+
+  it("finds nested visible subdirectories relative to the roam root", function()
+    local root = vim.fn.tempname()
+    vim.fn.mkdir(vim.fs.joinpath(root, "a", "b"), "p")
+    vim.fn.mkdir(vim.fs.joinpath(root, "z"), "p")
+    vim.fn.mkdir(vim.fs.joinpath(root, ".hidden", "inside"), "p")
+    vim.fn.mkdir(vim.fs.joinpath(root, "a", ".secret"), "p")
+
+    local dirs = graph.find_subdirectories(root)
+
+    assert.are.same({ "a", "a/b", "z" }, dirs)
+  end)
 end)

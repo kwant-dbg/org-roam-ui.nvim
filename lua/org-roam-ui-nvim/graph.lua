@@ -40,9 +40,42 @@ local function read_file(path)
   return table.concat(lines, "\n")
 end
 
+local function file_heading_state(path, cache)
+  if cache and cache[path] ~= nil then
+    return cache[path]
+  end
+
+  local text = read_file(path)
+  if not text then
+    if cache then
+      cache[path] = false
+    end
+    return nil
+  end
+
+  local headings = {}
+  local byte_pos = 0
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    local stars, title = line:match("^(%*+)%s+(.*)")
+    if stars then
+      table.insert(headings, {
+        offset = byte_pos,
+        level = #stars,
+        title = vim.trim(title),
+      })
+    end
+    byte_pos = byte_pos + #line + 1
+  end
+
+  if cache then
+    cache[path] = headings
+  end
+  return headings
+end
+
 -- Compute the outline level path (ancestor heading titles) for a heading node.
 -- Returns an array of strings or vim.NIL for file-level and headingless nodes.
-local function compute_olp(node)
+local function compute_olp(node, cache)
   if node.olp then
     return node.olp
   end
@@ -60,34 +93,28 @@ local function compute_olp(node)
     return vim.NIL
   end
 
-  local text = read_file(node.file)
-  if not text then
+  local headings = file_heading_state(node.file, cache)
+  if not headings then
     return vim.NIL
   end
 
   -- Walk headings in the file up to (but not including) the node's start byte.
   -- Keep the most recent title seen at each heading level.
   local level_titles = {}
-  local byte_pos = 0
 
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    if byte_pos >= start_offset then
+  for _, heading in ipairs(headings) do
+    if heading.offset >= start_offset then
       break
     end
 
-    local stars, title = line:match("^(%*+)%s+(.*)")
-    if stars then
-      local lvl = #stars
-      -- Clear all same/deeper levels so only the latest survives.
-      for k in pairs(level_titles) do
-        if k >= lvl then
-          level_titles[k] = nil
-        end
+    local lvl = heading.level
+    -- Clear all same/deeper levels so only the latest survives.
+    for k in pairs(level_titles) do
+      if k >= lvl then
+        level_titles[k] = nil
       end
-      level_titles[lvl] = vim.trim(title)
     end
-
-    byte_pos = byte_pos + #line + 1
+    level_titles[lvl] = heading.title
   end
 
   -- Build the path from level 1 up to the parent level.
@@ -108,7 +135,8 @@ end
 -- Properties the frontend actively queries.
 local FORWARDED_PROPS = { "NOTER_PAGE", "ROAM_REFS", "ROAM_ALIASES" }
 
-function M.to_orui_node(node)
+function M.to_orui_node(node, opts)
+  opts = opts or {}
   local properties = {}
 
   if node.origin then
@@ -140,7 +168,7 @@ function M.to_orui_node(node)
     title = node.title,
     level = node.level or 0,
     pos = node_pos(node),
-    olp = compute_olp(node),
+    olp = compute_olp(node, opts.olp_cache),
     properties = object_or_empty(properties),
     tags = vim.deepcopy(node.tags or {}),
   }
@@ -184,10 +212,11 @@ function M.from_core_database(core_db)
   local raw_nodes = all_nodes_from_core_db(core_db)
   local nodes = {}
   local tags = {}
+  local olp_cache = {}
 
   for _, id in ipairs(sorted_keys(raw_nodes)) do
     local node = raw_nodes[id]
-    table.insert(nodes, M.to_orui_node(node))
+    table.insert(nodes, M.to_orui_node(node, { olp_cache = olp_cache }))
     vim.list_extend(tags, node.tags or {})
   end
 
@@ -230,21 +259,46 @@ function M.find_subdirectories(root)
   root = vim.fs.normalize(vim.fn.expand(root))
   local dirs = {}
 
-  local function on_entry(name, type_)
-    if type_ ~= "directory" then
-      return
+  local function relative_path(path)
+    path = vim.fs.normalize(path)
+    if path == root then
+      return "."
     end
+    local prefix = root .. "/"
+    if vim.startswith(path, prefix) then
+      return path:sub(#prefix + 1)
+    end
+    return path
+  end
 
+  local function has_hidden_component(path)
+    for part in path:gmatch("[^/]+") do
+      if vim.startswith(part, ".") then
+        return true
+      end
+    end
+    return false
+  end
+
+  local function on_entry(name, parent)
     local basename = vim.fs.basename(name)
     if basename and vim.startswith(basename, ".") then
-      return
+      return false
     end
 
-    table.insert(dirs, name)
+    local full_path = vim.fs.joinpath(parent, name)
+    local rel = relative_path(full_path)
+    return rel ~= "." and not has_hidden_component(rel)
   end
 
   pcall(function()
-    vim.fs.find(on_entry, { path = root, type = "directory", limit = math.huge })
+    local found = vim.fs.find(on_entry, { path = root, type = "directory", limit = math.huge })
+    for _, path in ipairs(found or {}) do
+      local rel = relative_path(path)
+      if rel ~= "." and not has_hidden_component(rel) then
+        table.insert(dirs, rel)
+      end
+    end
   end)
 
   table.sort(dirs)

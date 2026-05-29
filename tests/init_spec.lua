@@ -1,4 +1,5 @@
 local orui = require("org-roam-ui-nvim")
+local graph = require("org-roam-ui-nvim.graph")
 
 local function resolved_promise(value)
   return {
@@ -12,20 +13,35 @@ local function resolved_promise(value)
   }
 end
 
+local expected_commands = {
+  "OrgRoamUiStart",
+  "OrgRoamUiStop",
+  "OrgRoamUiRefresh",
+  "OrgRoamUiFollow",
+  "OrgRoamUiSyncTheme",
+  "OrgRoamUiGraphData",
+  "OrgRoamUiToggleFollow",
+  "OrgRoamUiAddToLocalGraph",
+  "OrgRoamUiRemoveFromLocalGraph",
+}
+
 describe("org-roam-ui-nvim entrypoint", function()
   it("registers user commands", function()
     orui.setup({ open_on_start = false, refresh_on_save = false })
     local commands = vim.api.nvim_get_commands({})
 
-    assert.is_truthy(commands.OrgRoamUiStart)
-    assert.is_truthy(commands.OrgRoamUiStop)
-    assert.is_truthy(commands.OrgRoamUiRefresh)
-    assert.is_truthy(commands.OrgRoamUiFollow)
-    assert.is_truthy(commands.OrgRoamUiSyncTheme)
-    assert.is_truthy(commands.OrgRoamUiGraphData)
-    assert.is_truthy(commands.OrgRoamUiToggleFollow)
-    assert.is_truthy(commands.OrgRoamUiAddToLocalGraph)
-    assert.is_truthy(commands.OrgRoamUiRemoveFromLocalGraph)
+    for _, command in ipairs(expected_commands) do
+      assert.is_truthy(commands[command], command)
+    end
+  end)
+
+  it("documents registered user commands in vimdoc", function()
+    local doc_path = vim.fs.joinpath(vim.fn.getcwd(), "doc", "org-roam-ui-nvim.txt")
+    local doc = table.concat(vim.fn.readfile(doc_path), "\n")
+
+    for _, command in ipairs(expected_commands) do
+      assert.is_truthy(doc:find("*:" .. command .. "*", 1, true), command)
+    end
   end)
 
   it("auto-follow tracks cursor movement in org buffers", function()
@@ -64,9 +80,11 @@ describe("org-roam-ui-nvim entrypoint", function()
       followed_id = id
     end
 
+    local file = vim.fn.tempname() .. ".org"
+
     vim.cmd.OrgRoamUiToggleFollow()
-    vim.cmd.edit(vim.fn.tempname() .. ".org")
-    vim.wait(1000, function()
+    vim.cmd("silent keepalt noswapfile edit " .. vim.fn.fnameescape(file))
+    local did_follow = vim.wait(1000, function()
       return followed_id == "node-id"
     end, 10)
     vim.cmd.OrgRoamUiToggleFollow()
@@ -74,6 +92,7 @@ describe("org-roam-ui-nvim entrypoint", function()
     orui.follow_node = follow_node
     vim.cmd.bwipeout({ bang = true })
 
+    assert.is_true(did_follow)
     assert.are.equal("node-id", followed_id)
   end)
 
@@ -136,6 +155,101 @@ describe("org-roam-ui-nvim entrypoint", function()
     assert.are.same({ force = "scan" }, load_opts)
     assert.are.equal(0, vim.fn.filereadable(file))
     assert.is_table(result)
+  end)
+
+  it("does not scan subdirectories while checking delete path safety", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local file = vim.fs.joinpath(dir, "note.org")
+    vim.fn.writefile({ "#+title: Note" }, file)
+
+    orui.setup({
+      open_on_start = false,
+      refresh_on_save = false,
+      roam_dir = dir,
+      confirm_delete = function()
+        return true
+      end,
+      org_roam = {
+        database = {
+          get_sync = function()
+            return { id = "node-id", file = file, level = 0 }
+          end,
+        },
+      },
+    })
+
+    local original_find_subdirectories = graph.find_subdirectories
+    graph.find_subdirectories = function()
+      error("delete path guard should not scan subdirectories")
+    end
+
+    local ok, result = pcall(orui.delete_node, { id = "node-id", file = file })
+    graph.find_subdirectories = original_find_subdirectories
+
+    assert.is_true(ok)
+    assert.is_true(result)
+  end)
+
+  it("refreshes saved org files after async load_file resolves", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local file = vim.fs.joinpath(dir, "note.org")
+    vim.fn.writefile({ "#+title: Note" }, file)
+
+    local load_called = false
+    local resolve_load
+    local refresh_called = false
+
+    orui.setup({
+      open_on_start = false,
+      refresh_on_save = true,
+      roam_dir = dir,
+      org_roam = {
+        database = {
+          load_file = function(_, opts)
+            load_called = true
+            assert.are.equal(file, opts.path)
+            assert.is_true(opts.force)
+            return {
+              next = function(self, cb)
+                resolve_load = cb
+                return self
+              end,
+            }
+          end,
+        },
+      },
+    })
+
+    local original_find_subdirectories = graph.find_subdirectories
+    local original_refresh = orui.refresh
+    graph.find_subdirectories = function()
+      error("BufWritePost path guard should not scan subdirectories")
+    end
+    orui.refresh = function()
+      refresh_called = true
+    end
+
+    vim.cmd.edit(vim.fn.fnameescape(file))
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "#+title: Note", "* Changed" })
+    local ok, err = pcall(vim.cmd.write)
+
+    assert.is_true(ok, err)
+    assert.is_true(load_called)
+    assert.is_function(resolve_load)
+    assert.is_false(refresh_called)
+
+    resolve_load()
+    vim.wait(1000, function()
+      return refresh_called
+    end, 10)
+
+    graph.find_subdirectories = original_find_subdirectories
+    orui.refresh = original_refresh
+    vim.cmd.bwipeout({ bang = true })
+
+    assert.is_true(refresh_called)
   end)
 
   it("refuses to delete heading nodes", function()

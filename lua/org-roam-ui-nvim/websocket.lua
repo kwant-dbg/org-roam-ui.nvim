@@ -4,6 +4,7 @@ local uv = vim.uv or vim.loop
 local bit = bit or bit32
 
 local GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+local MAX_HEADER_SIZE = 16 * 1024
 
 local server
 local clients = {}
@@ -111,9 +112,9 @@ local function u64(value)
   return be32(high) .. be32(low)
 end
 
-function M.encode_frame(payload)
+function M.encode_frame(payload, opcode)
   local len = #payload
-  local header = string.char(0x81)
+  local header = string.char(0x80 + (opcode or 0x1))
 
   if len < 126 then
     header = header .. string.char(len)
@@ -190,6 +191,13 @@ local function send(client, payload)
   client:write(M.encode_frame(payload))
 end
 
+local function send_pong(client, payload)
+  if client:is_closing() then
+    return
+  end
+  client:write(M.encode_frame(payload, 0xA))
+end
+
 local function send_json(client, type_, data)
   send(client, vim.json.encode({ type = type_, data = data }))
 end
@@ -250,10 +258,105 @@ local function handle_message(client, payload)
   end)
 end
 
-local function handshake_response(request)
-  local key = request:match("[Ss]ec%-[Ww]eb[Ss]ocket%-[Kk]ey:%s*([^\r\n]+)")
-  if not key then
+local function parse_headers(request)
+  local headers = {}
+  for line in request:gmatch("[^\r\n]+") do
+    local name, value = line:match("^([^:]+):%s*(.*)$")
+    if name then
+      headers[name:lower()] = vim.trim(value)
+    end
+  end
+  return headers
+end
+
+local function parse_origin(origin)
+  if not origin or origin == "" then
     return nil
+  end
+
+  local scheme, rest = origin:match("^([%w+.-]+)://(.+)$")
+  if not scheme then
+    return nil
+  end
+
+  scheme = scheme:lower()
+  if scheme ~= "http" and scheme ~= "https" then
+    return nil
+  end
+
+  local authority = rest:match("^([^/%?#]+)")
+  local host, port
+  if authority and authority:sub(1, 1) == "[" then
+    host, port = authority:match("^%[([^%]]+)%]:?(%d*)$")
+  elseif authority then
+    host, port = authority:match("^([^:]+):?(%d*)$")
+  end
+
+  if not host or host == "" then
+    return nil
+  end
+
+  return {
+    scheme = scheme,
+    host = host:lower(),
+    port = tonumber(port),
+  }
+end
+
+local function allowed_origin(origin)
+  if not origin or origin == "" then
+    return true
+  end
+
+  local parsed = parse_origin(origin)
+  if not parsed then
+    return false
+  end
+
+  local opts = config or {}
+  local configured_host = tostring(opts.host or "127.0.0.1"):lower()
+  local allowed_hosts = {
+    [configured_host] = true,
+  }
+
+  if configured_host == "127.0.0.1" or configured_host == "localhost" then
+    allowed_hosts["127.0.0.1"] = true
+    allowed_hosts["localhost"] = true
+  elseif configured_host == "::1" then
+    allowed_hosts["::1"] = true
+    allowed_hosts["localhost"] = true
+  end
+
+  if not allowed_hosts[parsed.host] then
+    return false
+  end
+
+  local http_port = tonumber(opts.http_port)
+  return not http_port or parsed.port == nil or parsed.port == http_port
+end
+
+local function http_error(status, message)
+  local status_text = status == 403 and "Forbidden" or "Bad Request"
+  local body = message or status_text:lower()
+  return table.concat({
+    ("HTTP/1.1 %d %s"):format(status, status_text),
+    "Connection: close",
+    "Content-Type: text/plain",
+    ("Content-Length: %d"):format(#body),
+    "",
+    body,
+  }, "\r\n")
+end
+
+local function handshake_response(request)
+  local headers = parse_headers(request)
+  if not allowed_origin(headers.origin) then
+    return nil, http_error(403, "forbidden")
+  end
+
+  local key = headers["sec-websocket-key"]
+  if not key then
+    return nil, http_error(400, "missing websocket key")
   end
 
   return table.concat({
@@ -265,6 +368,8 @@ local function handshake_response(request)
     "",
   }, "\r\n")
 end
+
+M._handshake_response = handshake_response
 
 function M.broadcast(type_, data)
   local payload = vim.json.encode({ type = type_, data = data })
@@ -300,7 +405,12 @@ function M.start(opts)
     local buffer = ""
     local handshaken = false
 
-    server:accept(client)
+    local accepted = server:accept(client)
+    if not accepted then
+      client:close()
+      return
+    end
+
     client:read_start(function(read_err, chunk)
       if read_err or not chunk then
         clients[client] = nil
@@ -310,8 +420,22 @@ function M.start(opts)
 
       buffer = buffer .. chunk
       if not handshaken then
-        local response = handshake_response(buffer)
+        if #buffer > MAX_HEADER_SIZE then
+          client:write(http_error(400, "request header too large"), function()
+            client:close()
+          end)
+          return
+        end
+
+        if not buffer:find("\r\n\r\n", 1, true) then
+          return
+        end
+
+        local response, err_response = handshake_response(buffer)
         if not response then
+          client:write(err_response or http_error(400, "bad request"), function()
+            client:close()
+          end)
           return
         end
 
@@ -335,6 +459,8 @@ function M.start(opts)
           clients[client] = nil
           client:close()
           return
+        elseif frame.opcode == 0x9 then
+          send_pong(client, frame.payload)
         elseif frame.opcode == 0x1 then
           handle_message(client, frame.payload)
         end

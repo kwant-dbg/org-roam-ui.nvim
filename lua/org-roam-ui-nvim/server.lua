@@ -6,9 +6,14 @@ local config
 
 local status_text = {
   [200] = "OK",
+  [400] = "Bad Request",
+  [403] = "Forbidden",
   [404] = "Not Found",
+  [431] = "Request Header Fields Too Large",
   [500] = "Internal Server Error",
 }
+
+local MAX_HEADER_SIZE = 16 * 1024
 
 local content_types = {
   html = "text/html",
@@ -37,14 +42,34 @@ local function response(status, body, content_type)
   body = body or ""
   local headers = {
     ("HTTP/1.1 %d %s"):format(status, status_text[status] or "OK"),
-    "Access-Control-Allow-Origin: *",
     "Connection: close",
-    ("Content-Type: %s; charset=utf-8"):format(content_type or "text/plain"),
+    ("Content-Type: %s"):format(content_type or "text/plain"),
     ("Content-Length: %d"):format(#body),
     "",
     body,
   }
   return table.concat(headers, "\r\n")
+end
+
+local function read_file(path)
+  local fd = uv.fs_open(path, "r", 438)
+  if not fd then
+    return nil
+  end
+
+  local stat = uv.fs_fstat(fd)
+  if not stat then
+    uv.fs_close(fd)
+    return nil
+  end
+
+  local data = ""
+  if stat.size > 0 then
+    data = uv.fs_read(fd, stat.size, 0)
+  end
+  uv.fs_close(fd)
+
+  return data
 end
 
 local function read_static(path)
@@ -59,13 +84,47 @@ local function read_static(path)
   end
 
   local full_path = vim.fs.joinpath(config.static_dir, rel)
-  local ok, lines = pcall(vim.fn.readfile, full_path, "b")
-  if not ok then
+  local data = read_file(full_path)
+  if not data then
     return nil, nil
   end
 
   local ext = full_path:match("%.([%w]+)$") or "txt"
-  return table.concat(lines, "\n"), content_types[ext] or "application/octet-stream"
+  return data, content_types[ext] or "application/octet-stream"
+end
+
+local function normalize_path(path)
+  return vim.fs.normalize(vim.fn.fnamemodify(path, ":p"))
+end
+
+local function real_or_normal(path)
+  return uv.fs_realpath(path) or normalize_path(path)
+end
+
+local function path_is_inside(path, root)
+  if not root or root == "" then
+    return false
+  end
+
+  local normalized_path = real_or_normal(path)
+  local normalized_root = real_or_normal(root)
+  return normalized_path == normalized_root or vim.startswith(normalized_path, normalized_root .. "/")
+end
+
+local function allowed_image_path(decoded)
+  if decoded == "" or decoded:find("%z") then
+    return nil
+  end
+
+  local variables = config.variables()
+  local full_path = normalize_path(decoded)
+  for _, root in ipairs({ variables.roamDir, variables.attachDir }) do
+    if path_is_inside(full_path, root) then
+      return full_path
+    end
+  end
+
+  return nil
 end
 
 local function handle_request(path)
@@ -89,11 +148,16 @@ local function handle_request(path)
   local img_path = path:match("^/img/(.+)$")
   if img_path then
     local decoded = double_decode(img_path)
-    local ok, data = pcall(vim.fn.readfile, decoded, "b")
-    if not ok then
+    local full_path = allowed_image_path(decoded)
+    if not full_path then
+      return response(403, "forbidden")
+    end
+
+    local data = read_file(full_path)
+    if not data then
       return response(404, "error")
     end
-    return response(200, table.concat(data, "\n"), "application/octet-stream")
+    return response(200, data, "application/octet-stream")
   end
 
   local body, content_type = read_static(path)
@@ -126,14 +190,35 @@ function M.start(opts)
     assert(not err, err)
 
     local client = assert(uv.new_tcp())
-    server:accept(client)
+    local accepted = server:accept(client)
+    if not accepted then
+      client:close()
+      return
+    end
+
+    local buffer = ""
     client:read_start(function(read_err, chunk)
       if read_err or not chunk then
         client:close()
         return
       end
 
-      local path = parse_path(chunk)
+      buffer = buffer .. chunk
+      if #buffer > MAX_HEADER_SIZE then
+        client:write(response(431, "request header too large"), function()
+          client:close()
+        end)
+        return
+      end
+
+      if not buffer:find("\r\n\r\n", 1, true) then
+        return
+      end
+
+      local request = buffer
+      buffer = ""
+      client:read_stop()
+      local path = parse_path(request)
       vim.schedule(function()
         if client:is_closing() then
           return

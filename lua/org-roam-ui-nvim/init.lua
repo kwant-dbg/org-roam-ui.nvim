@@ -92,6 +92,17 @@ local function get_roam()
   return roam
 end
 
+local function get_roam_dir()
+  local roam = get_roam()
+  local roam_dir = M.config.roam_dir
+
+  if not roam_dir and roam and roam.database and roam.database.files_path then
+    roam_dir = roam.database:files_path()
+  end
+
+  return roam_dir or vim.fn.expand("~/notes/roam")
+end
+
 local function notify_error(message)
   vim.notify(message, vim.log.levels.ERROR, { title = "org-roam-ui.nvim" })
 end
@@ -114,6 +125,27 @@ local function default_confirm_delete(args)
     "Warning"
   )
   return choice == 1
+end
+
+local function schedule_refresh()
+  vim.schedule(function()
+    M.refresh()
+  end)
+end
+
+local function refresh_after_load(load_result)
+  if type(load_result) == "table" and type(load_result.next) == "function" then
+    local ok = pcall(function()
+      load_result:next(function()
+        schedule_refresh()
+      end)
+    end)
+    if ok then
+      return
+    end
+  end
+
+  schedule_refresh()
 end
 
 local function stop_follow_timer()
@@ -214,15 +246,21 @@ function M.setup(opts)
       callback = function()
         local path = vim.fn.expand("%:p")
         local roam = get_roam()
-        local roam_dir = M.variables().roamDir
-        if not roam or not roam.database or not vim.startswith(vim.fs.normalize(path), vim.fs.normalize(roam_dir) .. "/") then
+        local roam_dir = get_roam_dir()
+        if not roam or not roam.database or not path_is_inside(path, roam_dir) then
           return
         end
 
-        pcall(function()
-          roam.database:load_file({ path = path, force = true }):wait()
+        local ok, load_result = pcall(function()
+          if roam.database.load_file then
+            return roam.database:load_file({ path = path, force = true })
+          end
         end)
-        M.refresh()
+        if ok then
+          refresh_after_load(load_result)
+        else
+          schedule_refresh()
+        end
       end,
     })
   end
@@ -239,14 +277,7 @@ function M.graph_data()
 end
 
 function M.variables()
-  local roam = get_roam()
-  local roam_dir = M.config.roam_dir
-
-  if not roam_dir and roam and roam.database and roam.database.files_path then
-    roam_dir = roam.database:files_path()
-  end
-
-  roam_dir = roam_dir or vim.fn.expand("~/notes/roam")
+  local roam_dir = get_roam_dir()
 
   return {
     subDirs = graph.find_subdirectories(roam_dir),
@@ -320,6 +351,7 @@ function M.start()
   websocket.start({
     host = M.config.host,
     port = M.config.websocket_port,
+    http_port = M.config.port,
     graph_data = M.graph_data,
     variables = M.variables,
     node_text = M.node_text,
@@ -453,7 +485,7 @@ function M.delete_node(data)
     return false
   end
 
-  local roam_dir = M.variables().roamDir
+  local roam_dir = get_roam_dir()
   if not path_is_inside(file, roam_dir) then
     notify_error(("refusing to delete file outside roam directory: %s"):format(file))
     return false

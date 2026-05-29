@@ -301,15 +301,15 @@ The frontend is the static export from upstream `org-roam-ui`, copied into:
 web/org-roam-ui
 ```
 
-It has been patched from the Emacs defaults:
+It is rebuilt by `scripts/build-frontend.sh`, which applies
+`scripts/neovim-ports.patch` to upstream source before static export. The patch
+moves backend URLs to `NEXT_PUBLIC_*` env configuration and changes the browser
+label from Emacs to Neovim.
 
 ```text
 localhost:35901 -> 127.0.0.1:35911
 localhost:35903 -> 127.0.0.1:35913
 ```
-
-The current patch is applied to generated JS. Future work should prefer a
-source-level frontend fork or build-time configuration so this is less brittle.
 
 ## Testing
 

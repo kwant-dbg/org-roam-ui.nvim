@@ -5,6 +5,7 @@ local bit = bit or bit32
 
 local GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 local MAX_HEADER_SIZE = 16 * 1024
+local MAX_FRAME_SIZE = 1024 * 1024
 
 local server
 local clients = {}
@@ -130,27 +131,45 @@ end
 
 function M.decode_frame(frame)
   if #frame < 2 then
-    return nil
+    return nil, "incomplete"
   end
 
   local b1, b2 = frame:byte(1, 2)
+  local fin = bit.band(b1, 0x80) ~= 0
+  local rsv = bit.band(b1, 0x70)
   local opcode = bit.band(b1, 0x0f)
   local masked = bit.band(b2, 0x80) ~= 0
   local len = bit.band(b2, 0x7f)
   local idx = 3
+  local control = opcode >= 0x8
+
+  if rsv ~= 0 then
+    return nil, "reserved bits are not supported"
+  end
+
+  if not fin then
+    return nil, "fragmented frames are not supported"
+  end
+
+  if opcode ~= 0x1 and opcode ~= 0x8 and opcode ~= 0x9 and opcode ~= 0xA then
+    return nil, "unsupported opcode"
+  end
 
   if len == 126 then
     if #frame < 4 then
-      return nil
+      return nil, "incomplete"
     end
     local a, b = frame:byte(3, 4)
     len = a * 256 + b
     idx = 5
   elseif len == 127 then
     if #frame < 10 then
-      return nil
+      return nil, "incomplete"
     end
     local b = { frame:byte(3, 10) }
+    if bit.band(b[1], 0x80) ~= 0 then
+      return nil, "invalid payload length"
+    end
     len = 0
     for i = 1, 8 do
       len = len * 256 + b[i]
@@ -158,29 +177,51 @@ function M.decode_frame(frame)
     idx = 11
   end
 
+  if control and len > 125 then
+    return nil, "control frame payload too large"
+  end
+
+  if len > MAX_FRAME_SIZE then
+    return nil, "payload too large"
+  end
+
   local mask
   if masked then
     if #frame < idx + 3 then
-      return nil
+      return nil, "incomplete"
     end
     mask = { frame:byte(idx, idx + 3) }
     idx = idx + 4
   end
 
   if #frame < idx + len - 1 then
-    return nil
+    return nil, "incomplete"
   end
 
-  local payload = { frame:byte(idx, idx + len - 1) }
+  local payload
   if masked then
-    for i = 1, #payload do
-      payload[i] = bit.bxor(payload[i], mask[((i - 1) % 4) + 1])
+    local chunks = {}
+    local pos = idx
+    local end_pos = idx + len - 1
+    while pos <= end_pos do
+      local chunk_end = math.min(pos + 4095, end_pos)
+      local bytes = { frame:byte(pos, chunk_end) }
+      for i = 1, #bytes do
+        local offset = pos - idx + i - 1
+        bytes[i] = bit.bxor(bytes[i], mask[(offset % 4) + 1])
+      end
+      chunks[#chunks + 1] = string.char(unpack(bytes))
+      pos = chunk_end + 1
     end
+    payload = table.concat(chunks)
+  else
+    payload = frame:sub(idx, idx + len - 1)
   end
 
   return {
     opcode = opcode,
-    payload = string.char(unpack(payload)),
+    masked = masked,
+    payload = payload,
     consumed = idx + len - 1,
   }
 end
@@ -219,16 +260,24 @@ local function send_json(client, type_, data)
   send(client, vim.json.encode({ type = type_, data = data }))
 end
 
+local function has_config_function(name)
+  return config and type(config[name]) == "function"
+end
+
 local function send_initial(client)
   vim.schedule(function()
-    if is_closing(client) then
+    if is_closing(client) or not config then
       return
     end
-    send_json(client, "variables", config.variables())
-    send_json(client, "graphdata", config.graph_data())
+    if has_config_function("variables") then
+      send_json(client, "variables", config.variables())
+    end
+    if has_config_function("graph_data") then
+      send_json(client, "graphdata", config.graph_data())
+    end
     if config.theme then
       local theme_data = config.theme()
-      if next(theme_data) ~= nil then
+      if type(theme_data) == "table" and next(theme_data) ~= nil then
         send_json(client, "theme", theme_data)
       end
     end
@@ -242,6 +291,10 @@ local function handle_message(client, payload)
   end
 
   vim.schedule(function()
+    if not config then
+      return
+    end
+
     local function broadcast_after(result)
       if result == false then
         return
@@ -261,18 +314,32 @@ local function handle_message(client, payload)
       end
     end
 
-    if message.command == "open" and message.data and message.data.id then
+    if message.command == "open" and message.data and message.data.id and has_config_function("open_node") then
       config.open_node(message.data.id)
     elseif message.command == "refresh" then
       M.broadcast_graphdata()
-    elseif message.command == "getText" and message.data and message.data.id then
+    elseif message.command == "getText" and message.data and message.data.id and has_config_function("node_text") then
       send_json(client, "orgText", config.node_text(message.data.id) or "error")
-    elseif message.command == "delete" and config.delete_node and message.data then
+    elseif message.command == "delete" and has_config_function("delete_node") and message.data then
       broadcast_after(config.delete_node(message.data))
-    elseif message.command == "create" and config.create_node and message.data then
+    elseif message.command == "create" and has_config_function("create_node") and message.data then
       broadcast_after(config.create_node(message.data))
     end
   end)
+end
+
+local function parse_request_line(request)
+  local line = request:match("^([^\r\n]+)")
+  if not line then
+    return nil
+  end
+
+  local method, target, version = line:match("^(%S+)%s+(%S+)%s+HTTP/(%d+%.%d+)$")
+  if not method then
+    return nil
+  end
+
+  return method, target, version
 end
 
 local function parse_headers(request)
@@ -284,6 +351,34 @@ local function parse_headers(request)
     end
   end
   return headers
+end
+
+local function header_token_contains(value, token)
+  if not value then
+    return false
+  end
+
+  token = token:lower()
+  for part in value:gmatch("[^,]+") do
+    if vim.trim(part):lower() == token then
+      return true
+    end
+  end
+  return false
+end
+
+local function valid_websocket_key(key)
+  if not key then
+    return false
+  end
+
+  key = vim.trim(key)
+  if #key % 4 ~= 0 or not key:match("^[A-Za-z0-9+/=]+$") or key:find("=.-[^=]") then
+    return false
+  end
+
+  local ok, decoded = pcall(vim.base64.decode, key)
+  return ok and type(decoded) == "string" and #decoded == 16
 end
 
 local function parse_origin(origin)
@@ -366,14 +461,31 @@ local function http_error(status, message)
 end
 
 local function handshake_response(request)
+  local method = parse_request_line(request)
+  if method ~= "GET" then
+    return nil, http_error(400, "invalid websocket method")
+  end
+
   local headers = parse_headers(request)
+  if (headers.upgrade or ""):lower() ~= "websocket" then
+    return nil, http_error(400, "invalid websocket upgrade")
+  end
+
+  if not header_token_contains(headers.connection, "upgrade") then
+    return nil, http_error(400, "invalid websocket connection")
+  end
+
+  if headers["sec-websocket-version"] ~= "13" then
+    return nil, http_error(400, "invalid websocket version")
+  end
+
   if not allowed_origin(headers.origin) then
     return nil, http_error(403, "forbidden")
   end
 
   local key = headers["sec-websocket-key"]
-  if not key then
-    return nil, http_error(400, "missing websocket key")
+  if not valid_websocket_key(key) then
+    return nil, http_error(400, "invalid websocket key")
   end
 
   return table.concat({
@@ -396,11 +508,15 @@ function M.broadcast(type_, data)
 end
 
 function M.broadcast_graphdata()
-  M.broadcast("graphdata", config.graph_data())
+  if has_config_function("graph_data") then
+    M.broadcast("graphdata", config.graph_data())
+  end
 end
 
 function M.broadcast_variables()
-  M.broadcast("variables", config.variables())
+  if has_config_function("variables") then
+    M.broadcast("variables", config.variables())
+  end
 end
 
 function M.command(command_name, data)
@@ -417,6 +533,7 @@ function M.start(opts)
   local ok, err = listener:bind(opts.host, opts.port)
   if not ok then
     close_handle(listener)
+    config = nil
     error(err or ("failed to bind " .. opts.host .. ":" .. opts.port))
   end
 
@@ -471,12 +588,25 @@ function M.start(opts)
       end
 
       while #buffer > 0 do
-        local frame = M.decode_frame(buffer)
+        if #buffer > MAX_FRAME_SIZE + 14 then
+          close_client(client)
+          return
+        end
+
+        local frame, frame_err = M.decode_frame(buffer)
         if not frame then
+          if frame_err ~= "incomplete" then
+            close_client(client)
+          end
           return
         end
 
         buffer = buffer:sub(frame.consumed + 1)
+        if not frame.masked then
+          close_client(client)
+          return
+        end
+
         if frame.opcode == 0x8 then
           close_client(client)
           return
@@ -491,6 +621,7 @@ function M.start(opts)
 
   if not ok then
     close_handle(listener)
+    config = nil
     error(err or ("failed to listen on " .. opts.host .. ":" .. opts.port))
   end
 
@@ -511,6 +642,7 @@ function M.stop()
     close_handle(server)
     server = nil
   end
+  config = nil
 end
 
 return M

@@ -11,7 +11,8 @@ the browser app expects.
 ## Status
 
 This is a working Neovim plugin. It is installable with standard plugin
-managers and includes a vendored static frontend, help docs, and tests.
+managers and includes a vendored static frontend, Vim help docs, Plenary tests,
+and Playwright browser coverage.
 
 Implemented:
 
@@ -33,12 +34,12 @@ Implemented:
 - Toggle auto-follow at runtime with `OrgRoamUiToggleFollow`.
 - Add/remove/replace nodes in the local graph via WebSocket commands.
 
-Known incomplete areas:
+Limitations:
 
 - Full parity with Emacs `org-roam-ui` is not finished.
-- Browser delete is guarded: only file-level nodes inside the configured roam
-  directory are deleted, and Neovim asks for confirmation before removing the
-  file.
+- Browser delete is intentionally guarded: only file-level nodes inside the
+  configured roam directory are deleted, and Neovim asks for confirmation before
+  removing the file.
 - Citation/ref support is basic and does not match Emacs org-roam + org-roam-bibtex.
 
 ## Requirements
@@ -48,6 +49,7 @@ Known incomplete areas:
 - `chipsenkbeil/org-roam.nvim`.
 - A populated `org-roam.nvim` database.
 - `curl` for the test suite.
+- Node.js and npm for rebuilding the frontend or running Playwright tests.
 
 The test setup derives the repo root from `tests/minimal_init.lua`, so the repo
 can live anywhere. If Plenary is not installed under Neovim's standard Lazy path,
@@ -106,7 +108,7 @@ return {
 
 ## Usage
 
-Start the backend and frontend server:
+Start the backend and frontend server from Neovim:
 
 ```vim
 :OrgRoamUiStart
@@ -141,6 +143,16 @@ Other commands:
 :OrgRoamUiAddToLocalGraph
 :OrgRoamUiRemoveFromLocalGraph
 ```
+
+Typical workflow:
+
+1. Open an org-roam buffer in Neovim.
+2. Run `:OrgRoamUiStart`.
+3. Visit `http://127.0.0.1:35911/`.
+4. Use `:OrgRoamUiRefresh` after manual database changes if save-based refresh
+   is not enough.
+5. Use `:OrgRoamUiFollow` or enable `follow_on_switch` to move the browser to
+   the current node.
 
 Help:
 
@@ -215,10 +227,11 @@ The vendored `web/org-roam-ui` is built from source using:
 bash scripts/build-frontend.sh
 ```
 
-This clones upstream `org-roam-ui` at the pinned commit, applies
-`scripts/neovim-ports.patch` (which introduces `lib/backend.ts` to read
-Neovim ports from `NEXT_PUBLIC_*` env vars), builds a static export, and
-replaces `web/org-roam-ui/`. Requires `node` and `npm`.
+This clones upstream `org-roam-ui` at the pinned commit in
+`scripts/build-frontend.sh`, applies `scripts/neovim-ports.patch` (which
+introduces `lib/backend.ts` to read Neovim ports from `NEXT_PUBLIC_*` env vars),
+builds a static export, removes service-worker leftovers, validates that old
+Emacs ports/labels are gone, and replaces `web/org-roam-ui/`.
 
 ## Architecture
 
@@ -336,6 +349,14 @@ nvim --headless -u "$REPO_ROOT/tests/minimal_init.lua" \
   -c "PlenaryBustedDirectory $REPO_ROOT/tests { minimal_init = '$REPO_ROOT/tests/minimal_init.lua' }"
 ```
 
+Run browser tests:
+
+```sh
+npm ci
+npx playwright install chromium
+npm run test:e2e -- --project=chromium
+```
+
 Expected coverage:
 
 - graph serialization
@@ -345,6 +366,8 @@ Expected coverage:
 - static frontend serving
 - WebSocket accept key and frame encode/decode
 - command registration
+- Playwright smoke coverage for the vendored graph UI, HTTP graph data, the
+  browser WebSocket connection, and nonblank canvas rendering
 
 CI runs the Plenary suite and Playwright browser tests on pushes and pull
 requests.
@@ -374,11 +397,18 @@ nvim --headless -i NONE \
 
 ## Roadmap
 
+Planned work:
+
 - [ ] Vendor patched frontend source directly (remove upstream patch dependency).
 - [ ] Implement citation/ref parity where `org-roam.nvim` can expose the data.
+- [ ] Expand Playwright coverage for click-node-to-open behavior and local graph commands.
+- [ ] Improve heading preview ranges and forwarded property coverage.
+
+Completed:
+
 - [x] Add end-to-end browser tests with Playwright.
 - [x] Package as a normal public plugin instead of a local prototype.
-- [x] Replace generated-JS frontend patching with a source-level frontend fork.
+- [x] Replace generated-JS frontend patching with a source-level frontend patch.
 - [x] Improve heading node `olp` generation.
 - [x] Add richer org-roam properties and refs.
 - [x] Export live Neovim colorscheme as theme data.
